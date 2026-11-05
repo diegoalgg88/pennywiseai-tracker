@@ -256,8 +256,8 @@
     <string name="chat_memory_warning">चैट मेमोरी %1$d%% भरी हुई है। कृपया जल्द ही साफ करने पर विचार करें।</string>
     <string name="chat_memory_usage">चैट मेमोरी %1$d%% भरी हुई है।</string>
     <plurals name="chat_stats_model_messages">
-        <item quantity="one">Qwen 2.5 1.5B • %1$d मैसेज</item>
-        <item quantity="other">Qwen 2.5 1.5B • %1$d मैसेज</item>
+        <item quantity="one">%2$s • %1$d मैसेज</item>
+        <item quantity="other">%2$s • %1$d मैसेज</item>
     </plurals>
     <string name="chat_stats_tokens">%1$s टोकन</string>
     <string name="chat_stats_tokens_of_max">%1$s / %2$s टोकन</string>

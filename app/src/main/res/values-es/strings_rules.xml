@@ -255,8 +255,8 @@
     <string name="chat_memory_warning">La memoria del chat está al %1$d%%. Te conviene borrarla pronto.</string>
     <string name="chat_memory_usage">La memoria del chat está al %1$d%%.</string>
     <plurals name="chat_stats_model_messages">
-        <item quantity="one">Qwen 2.5 1.5B • %1$d mensaje</item>
-        <item quantity="other">Qwen 2.5 1.5B • %1$d mensajes</item>
+        <item quantity="one">%2$s • %1$d mensaje</item>
+        <item quantity="other">%2$s • %1$d mensajes</item>
     </plurals>
     <string name="chat_stats_system_tokens">Sistema: %1$s</string>
     <string name="chat_context_usage">Uso del contexto</string>

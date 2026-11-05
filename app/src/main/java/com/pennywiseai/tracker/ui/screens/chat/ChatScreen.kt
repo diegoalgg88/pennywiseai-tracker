@@ -46,9 +46,9 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import java.util.Date
 import java.util.Locale
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Scale
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Scale
 import kotlinx.coroutines.CoroutineScope
 import android.net.Uri
 import androidx.compose.ui.platform.LocalConfiguration
@@ -595,7 +595,6 @@ fun ChatScreen(
                                         AsyncImage(
                                             model = ImageRequest.Builder(LocalContext.current)
                                                 .data(uri)
-                                                .crossfade(true)
                                                 .build(),
                                             contentDescription = stringResource(R.string.chat_image_preview),
                                             modifier = Modifier

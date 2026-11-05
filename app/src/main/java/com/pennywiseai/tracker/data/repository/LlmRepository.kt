@@ -790,7 +790,7 @@ open class LlmRepository @Inject constructor(
          * narró el call en vez de emitirlo (patrón #2202 con gemma-4-E2B:
          * "monthSummary" crudo como respuesta completa).
          */
-        private val NARRATED_TOOL = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
+        private val NARRATED_TOOL = Regex("^([A-Za-z_][A-Za-z0-9_]*)$")
         private const val TAG = "LlmRepository"
 
         /** Prompt for vision (receipt OCR → addTransaction). In English (system prompt language). */

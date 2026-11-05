@@ -1,7 +1,9 @@
 package com.pennywiseai.tracker.data.service
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Contents
@@ -10,7 +12,10 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.ThinkingConfig as LiteRtThinkingConfig
 import com.google.ai.edge.litertlm.tool
+import com.pennywiseai.tracker.core.ThinkingConfig
+import com.pennywiseai.tracker.domain.service.ChatError
 import com.pennywiseai.tracker.domain.service.LlmEvent
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -56,15 +61,20 @@ class LlmServiceImpl @Inject constructor(
 
     private val backendPrefs by lazy { context.getSharedPreferences("llm_backend", Context.MODE_PRIVATE) }
 
-    override suspend fun initialize(modelPath: String): Result<Unit> = withContext(Dispatchers.IO) {
-        lifecycle.withLock { initializeLocked(modelPath) }
+    // Whether the engine was started with the vision and audio executors; the CPU
+    // retry after a GPU failure has to rebuild it the same way.
+    @Volatile private var multimodal: Boolean = false
+
+    override suspend fun initialize(modelPath: String, multimodal: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        lifecycle.withLock { initializeLocked(modelPath, multimodal) }
     }
 
-    private fun initializeLocked(modelPath: String): Result<Unit> {
+    private fun initializeLocked(modelPath: String, multimodal: Boolean): Result<Unit> {
         // A caller that queued behind another start (or the CPU retry) must not replace,
         // and leak, the engine the live conversation runs on.
         if (engine != null) return Result.success(Unit)
         this.modelPath = modelPath
+        this.multimodal = multimodal
         return try {
             // GPU first; devices without a usable OpenCL/GPU delegate throw here, so fall back to CPU.
             // A buggy driver can instead crash natively, which no catch sees: the flag is
@@ -73,13 +83,13 @@ class LlmServiceImpl @Inject constructor(
             // attempt that crashed or threw is never retried and later starts go to CPU.
             val cpu = {
                 gpuUnconfirmed = false
-                startEngine(modelPath, Backend.CPU()).also { Log.i(TAG, "Engine initialized on CPU backend") }
+                startEngine(modelPath, Backend.CPU(), multimodal).also { Log.i(TAG, "Engine initialized on CPU backend") }
             }
             engine = if (backendPrefs.getBoolean(KEY_GPU_FAILED, false)) {
                 cpu()
             } else try {
                 backendPrefs.edit().putBoolean(KEY_GPU_FAILED, true).commit()
-                startEngine(modelPath, Backend.GPU()).also {
+                startEngine(modelPath, Backend.GPU(), multimodal).also {
                     gpuUnconfirmed = true
                     Log.i(TAG, "Engine initialized on GPU backend")
                 }
@@ -97,7 +107,8 @@ class LlmServiceImpl @Inject constructor(
     override suspend fun createConversation(
         systemPrompt: String,
         history: List<Pair<String, Boolean>>,
-        withTools: Boolean
+        withTools: Boolean,
+        thinkingConfig: ThinkingConfig?
     ): Result<Unit> = withContext(Dispatchers.IO) { lifecycle.withLock {
         try {
             val currentEngine = engine ?: return@withLock Result.failure(
@@ -108,7 +119,7 @@ class LlmServiceImpl @Inject constructor(
             // leave a dead conversation behind for the next caller to close again.
             takeConversation()?.closeQuietly()
 
-            val config = chatConversationConfig(systemPrompt, history, withTools)
+            val config = chatConversationConfig(systemPrompt, history, withTools, thinkingConfig)
             conversation = currentEngine.createConversation(config)
             conversationConfig = config
             Log.d(TAG, "Conversation created with ${history.size} history messages")
@@ -147,13 +158,65 @@ class LlmServiceImpl @Inject constructor(
         }
     }
 
+    override fun sendMessageWithImage(message: String, imageUri: Uri): Flow<LlmEvent> {
+        val activeConversation = conversation
+            ?: throw IllegalStateException("No active conversation")
+        // LiteRT-LM opens media by file path, never by content:// URI.
+        val imagePath = imageUri.path ?: throw ChatError.MediaUnreadable()
+        Log.d(TAG, "Sending message with image: ${message.take(50)}...")
+        val contents = Contents.of(Content.ImageFile(imagePath), Content.Text(message))
+        return sendContentsWithGpuRetry(activeConversation, contents)
+    }
+
+    override fun sendMessageWithAudio(message: String, audioUri: Uri): Flow<LlmEvent> {
+        val activeConversation = conversation
+            ?: throw IllegalStateException("No active conversation")
+        val audioPath = audioUri.path ?: throw ChatError.MediaUnreadable()
+        Log.d(TAG, "Sending message with audio: ${message.take(50)}...")
+        val contents = Contents.of(Content.AudioFile(audioPath), Content.Text(message))
+        return sendContentsWithGpuRetry(activeConversation, contents)
+    }
+
+    /** A media reply follows the same GPU-then-CPU rule as a text one. */
+    private fun sendContentsWithGpuRetry(
+        activeConversation: Conversation,
+        contents: Contents
+    ): Flow<LlmEvent> = flow {
+        val onUnconfirmedGpu = gpuUnconfirmed
+        var streamed = false
+        emitAll(
+            streamContents(activeConversation, contents)
+                .onEach { streamed = true }
+                .catch { e ->
+                    if (e is CancellationException || !onUnconfirmedGpu || streamed) throw e
+                    Log.w(TAG, "GPU failed its first reply (${e.javaClass.simpleName}), retrying on CPU")
+                    val cpuConversation = restartOnCpu(activeConversation) ?: throw e
+                    emitAll(streamContents(cpuConversation, contents))
+                }
+        )
+    }
+
     private fun stream(activeConversation: Conversation, message: String): Flow<LlmEvent> =
         activeConversation.sendMessageAsync(message)
-            // Re-arm after a cancelled first reply; commit() so a native crash still finds it.
-            .onStart { if (gpuUnconfirmed) backendPrefs.edit().putBoolean(KEY_GPU_FAILED, true).commit() }
+            .withGpuGuard()
+            .toLlmEvents()
+            .flowOn(Dispatchers.IO)
+
+    /** Media goes through the same guard: the GPU verdict is about the engine, not the payload. */
+    private fun streamContents(activeConversation: Conversation, contents: Contents): Flow<LlmEvent> =
+        activeConversation.sendMessageAsync(contents)
+            .withGpuGuard()
+            .toLlmEvents()
+            .flowOn(Dispatchers.IO)
+
+    /**
+     * Re-arm after a cancelled first reply; commit() so a native crash still finds it.
+     * Finished: the GPU works. Cancelled (chat closed): no verdict, so the next start may
+     * try GPU again. A thrown error keeps the flag, so it starts on CPU.
+     */
+    private fun Flow<Message>.withGpuGuard(): Flow<Message> =
+        onStart { if (gpuUnconfirmed) backendPrefs.edit().putBoolean(KEY_GPU_FAILED, true).commit() }
             .onCompletion { cause ->
-                // Finished: the GPU works. Cancelled (chat closed): no verdict, so the next
-                // start may try GPU again. A thrown error keeps the flag, so it starts on CPU.
                 if (gpuUnconfirmed && (cause == null || cause is CancellationException)) {
                     if (cause == null) gpuUnconfirmed = false
                     backendPrefs.edit().putBoolean(KEY_GPU_FAILED, false).apply()
@@ -164,14 +227,23 @@ class LlmServiceImpl @Inject constructor(
                 Log.e(TAG, "Error during streaming response (${e.javaClass.simpleName})")
                 throw e
             }
-            .transform { chunk ->
-                val text = chunk.contents.contents
-                    .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
-                    .joinToString("") { it.text }
-                if (text.isNotEmpty()) emit(LlmEvent.Text(text))
-                chunk.toolCalls.forEach { emit(LlmEvent.ToolCall(it.name, it.arguments)) }
-            }
-            .flowOn(Dispatchers.IO)
+
+    /**
+     * Maps LiteRT chunks to app events. Reasoning is NOT a Content subtype: the runtime
+     * delivers it in the message's "thought" channel, so the thinking panel only receives
+     * anything when that channel is read.
+     */
+    private fun Flow<Message>.toLlmEvents(): Flow<LlmEvent> =
+        transform { chunk ->
+            val text = chunk.contents.contents
+                .filterIsInstance<Content.Text>()
+                .joinToString("") { it.text }
+            if (text.isNotEmpty()) emit(LlmEvent.Text(text))
+            chunk.toolCalls.forEach { emit(LlmEvent.ToolCall(it.name, it.arguments)) }
+            chunk.channels[THOUGHT_CHANNEL]
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { emit(LlmEvent.Thinking(it)) }
+        }
 
     /**
      * Replaces the GPU engine whose first reply failed with a CPU one and rebuilds the
@@ -187,7 +259,7 @@ class LlmServiceImpl @Inject constructor(
             closeEngine()
             try {
                 gpuUnconfirmed = false
-                val cpu = startEngine(path, Backend.CPU()).also { engine = it }
+                val cpu = startEngine(path, Backend.CPU(), multimodal).also { engine = it }
                 Log.i(TAG, "Engine restarted on CPU backend")
                 cpu.createConversation(config).also { conversation = it }
             } catch (e: Exception) {
@@ -217,8 +289,21 @@ class LlmServiceImpl @Inject constructor(
     }
 
     /** Builds and initializes an engine on [backend], releasing it if initialization fails. */
-    private fun startEngine(modelPath: String, backend: Backend): Engine {
-        val e = Engine(EngineConfig(modelPath = modelPath, backend = backend, cacheDir = context.cacheDir.path))
+    private fun startEngine(modelPath: String, backend: Backend, multimodal: Boolean): Engine {
+        val e = Engine(
+            EngineConfig(
+                modelPath = modelPath,
+                backend = backend,
+                // Without these executors the engine rejects Content.ImageFile / AudioFile
+                // ("vision executor should not be null"). Only models that ship them may ask
+                // for them; a text-only bundle fails to initialize if it is given one.
+                // The vision executor follows the engine's own backend, so a CPU fallback
+                // does not ask for a GPU delegate that isn't there.
+                visionBackend = if (multimodal) backend else null,
+                audioBackend = if (multimodal) Backend.CPU() else null,
+                cacheDir = context.cacheDir.path
+            )
+        )
         try {
             e.initialize()
         } catch (t: Throwable) {
@@ -242,15 +327,22 @@ class LlmServiceImpl @Inject constructor(
 
     override fun isInitialized(): Boolean = engine != null
 
+    /** Path with the engine was initialized from; the caller compares it against the active model. */
+    override fun initializedModelPath(): String? = modelPath
+
     companion object {
         private const val TAG = "LlmServiceImpl"
         private const val KEY_GPU_FAILED = "gpu_failed"
+
+        /** Channel name LiteRT-LM uses for chain-of-thought tokens. */
+        private const val THOUGHT_CHANNEL = "thought"
 
         /** The chat's conversation setup; the debug LLM probe builds the same one. */
         internal fun chatConversationConfig(
             systemPrompt: String,
             history: List<Pair<String, Boolean>>,
-            withTools: Boolean
+            withTools: Boolean,
+            thinkingConfig: ThinkingConfig? = null
         ) = ConversationConfig(
             systemInstruction = Contents.of(systemPrompt),
             initialMessages = history.map { (message, isUser) ->
@@ -265,6 +357,10 @@ class LlmServiceImpl @Inject constructor(
                 topP = 0.95,
                 temperature = 0.8
             ),
+            // Chain-of-thought only when the app asks for it (developer mode).
+            thinkingConfig = thinkingConfig?.takeIf { it.enabled }?.let {
+                LiteRtThinkingConfig(true, it.budgetTokens)
+            },
             // The model's built-in template can't read LiteRT-LM >= 0.18's message format.
             chatTemplate = QwenChatTemplate.TEMPLATE
         )

@@ -249,7 +249,7 @@
     <string name="chat_memory_warning">หน่วยความจำแชทเต็ม %1$d%% พิจารณาล้างในเร็ว ๆ นี้</string>
     <string name="chat_memory_usage">หน่วยความจำแชทเต็ม %1$d%%</string>
     <plurals name="chat_stats_model_messages">
-        <item quantity="other">Qwen 2.5 1.5B • %1$d ข้อความ</item>
+        <item quantity="other">%2$s • %1$d ข้อความ</item>
     </plurals>
     <string name="chat_stats_tokens">%1$s โทเค็น</string>
     <string name="chat_stats_tokens_of_max">%1$s / %2$s โทเค็น</string>
