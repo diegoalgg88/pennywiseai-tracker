@@ -51,6 +51,13 @@ complaint.
    `GROUP BY` (3.39+) crashed every launch on Android ≤13. Before merging or
    releasing a migration, run the update path on the `Api26_Migration` AVD —
    see `docs/database-migrations.md`.
+9. **Never open a pull request against `sarim2000/pennywiseai-tracker:main`.**
+   That repository belongs to the upstream maintainer: `origin` points at it and
+   the account `diegoalgg88` has read-only access (a push returns HTTP 403).
+   Every change lands in the fork **`diegoalgg88/pennywiseai-tracker`** (the
+   `fork` remote), whose `main` is the canonical, most complete and corrected
+   build. `origin` is a fetch-only reference: never push to it, never
+   force-push either remote, and never open a PR against it.
 
 ## Verification — Definition of Done
 Run **`./init.sh`** before claiming a change is done — it runs the same
