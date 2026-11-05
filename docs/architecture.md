@@ -248,6 +248,83 @@ The real `HomeUiState` in `presentation/home/HomeViewModel.kt` carries much more
 - Consistent naming patterns
 - Immutable data structures
 
+## F8 Features — System Prompt Additions & Custom HF Model
+
+### System Prompt Additions (F8-T1)
+Semantic blocks appended to the on-device model's system prompt, separate from user-defined `customInstructions`.
+
+| Component | File | Role |
+|---|---|---|
+| Preference key | `UserPreferencesRepository.kt:206` | `SYSTEM_PROMPT_ADDITIONS` DataStore key |
+| Flow + setter | `UserPreferencesRepository.kt:1181-1193` | `systemPromptAdditions` flow + `setSystemPromptAdditions()` |
+| System prompt injection | `LlmRepository.kt:552, 607, 632-635` | Reads pref, adds `--- System prompt additions (semantic) ---` block |
+| SettingsViewModel | `SettingsViewModel.kt:154, 496-500` | Exposes flow + setter to UI |
+| Settings UI | `SettingsScreen.kt:1072-1105` | Multiline field (4 lines, ~200 tokens hint) under Experimental |
+
+Budget: Qwen 2560 token context, ~2000 budget, ~200 reserved for additions. Tests: `ChatPromptBudgetTest` (3 new tests).
+
+### Custom HuggingFace Model — Experimental (F8-T2)
+User-configurable `.litertlm` model from HuggingFace with pre-download validation.
+
+| Component | File | Role |
+|---|---|---|
+| Config data class | `Constants.kt:171-195` | `CustomModelConfig` (repoId, fileName, sha256, sizeBytes, contextTokens, minRamBytes, displayName) + JSON serialize |
+| Validation | `SettingsViewModel.kt:533-594` | `validateCustomModel()` → HEAD to HF API, checks Content-Length ±5%, X-Huggingface-Sha256 |
+| State machine | `SettingsViewModel.kt:165-173` | `CustomModelValidationState` enum (IDLE→PENDING→VALIDATED→DOWNLOADING→READY/ERROR) |
+| Persistence | `SettingsViewModel.kt:596-615` | `saveCustomModelConfig()` / `clearCustomModelConfig()` → JSON in prefs |
+| Model catalog | `Constants.kt:320-335` | `ChatModels.allWithCustom(customJson)` includes custom model |
+| RAM gate | `ModelRepository.kt:93-98` | `supportedModelsWithCustom()` filters by device RAM |
+| Settings UI | `SettingsScreen.kt:983-1335` | Experimental section with 7 fields + Validate/Save/Clear buttons |
+
+Fallback: validation fail or RAM gate fail → built-in Qwen 1.5B.
+
+## On-Device AI Chat (LiteRT-LM) — Current Capabilities
+
+### Model Catalog (`core/Constants.kt:135-170`, `ChatModels` object)
+| Model | ID | Context | Min RAM | Size | Capabilities |
+|---|---|---|---|---|---|
+| Qwen 2.5 1.5B | `qwen25-1.5b` | 4096 | 0 GB (fallback) | 1.5 GB | Text, tools |
+| Gemma 4 E2B | `gemma4-e2b` | 8192 | 6 GB | 2.6 GB | Text, tools, thinking |
+| Gemma 3n E2B | `gemma3n-e2b` | 8192 | 4 GB | 3.7 GB | Text, vision, audio, tools |
+| Whisper Base | `whisper-base` | 0 (ASR only) | 2 GB | 42 MB | Audio transcription |
+| Custom HF | `custom-*` | user-defined | user-defined | user-defined | Text, tools (if supports FC) |
+
+**RAM gate** (`ModelRepository.kt:56-68`): `deviceSupports(spec)` filters catalog at runtime; fallback to Qwen 1.5B with warning log.
+
+**Integrity** (`ModelRepository.kt:93-118`): SHA-256 streaming verification on every load; `.verified` marker is UI-only, never short-circuits load path.
+
+### Tools (10 total, `PennyWiseTools.kt`)
+| Tool | Type | Params |
+|---|---|---|
+| `add_transaction` | Mutation | amount, merchant, category, type (EXPENSE/INCOME), account |
+| `delete_transaction` | Mutation | merchant, amount, daysAgo |
+| `update_transaction` | Mutation | merchant, amount, daysAgo, newCategory, newMerchant |
+| `month_summary` | Read-only | — |
+| `spending_by_category` | Read-only | category |
+| `budget_status` | Read-only | — |
+| `category_breakdown` | Read-only | limit (max 10) |
+| `recent_transactions` | Read-only | limit (max 20), daysBack (max 30) |
+| `account_balance` | Read-only | — |
+| `spending_forecast` | Read-only | — |
+
+**Key invariant** (`LlmServiceImpl.kt:86`): `automaticToolCalling = false` — mutations never auto-execute; user confirms via `PendingChatAction` card in chat.
+
+### Multimodal (Gemma 3n E2B)
+- Vision: `sendMessageWithImage()` → `Content.ImageFile(path)` + `visionBackend = Backend.CPU()`
+- Audio: `sendMessageWithAudio()` → `Content.AudioFile(path)` + `audioBackend`
+- Both require active model to be Gemma 3n E2B; UI gates attach/mic buttons by `activeSpec()`
+
+### Thinking (Gemma 4 E2B, developer mode only)
+- `ThinkingConfig` in `ConversationConfig` (litertlm 0.17.1+)
+- Budget tokens from prefs (`thinking_budget_tokens`, default 1024)
+- Raw tokens visible only in developer mode toggle
+
+### Token Budget (`TokenUtils.kt`)
+- Qwen: 4096 context - 1536 reserved = **2560** chat budget
+- Gemma: 8192 context - 1536 reserved = **6640** chat budget
+- `fitsChatBudget()` throws "Chat memory is full" if exceeded
+- `chatBudget(spec)` dynamic per model
+
 ## Migration & Evolution
 
 ### Database Migrations

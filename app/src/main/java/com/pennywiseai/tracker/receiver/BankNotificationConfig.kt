@@ -27,8 +27,16 @@ object BankNotificationConfig {
         // Huntington (USA) – app notifications use the same wording as its texts;
         // alias must match HuntingtonBankParser.canHandle()
         "com.huntington.m" to "Huntington",   // Huntington Mobile Banking
-        // Dubai First (UAE credit cards, a FAB brand) – alias must match DubaiFirstParser.canHandle()
-        "com.bankfab.pbg.ae.dubaifirst" to "DubaiFirst"
+        // Dubai First (UAE credit cards, a FAB brand) - alias must match DubaiFirstParser.canHandle()
+        "com.bankfab.pbg.ae.dubaifirst" to "DubaiFirst",
+        // BBVA Mexico - los avisos de la app son push (el sender SMS oficial 266845
+        // no esta activo en todos los dispositivos); el alias debe matchear
+        // BBVAMexicoParser.canHandle()
+        "com.bancomer.mbanking" to "BBVAMX",
+        // Amex App Mexico - alias "AMEX": matchea AmexMexicoParser (contenido en
+        // espanol) y al parser de India como fallback; el content-gate del parser
+        // MX resuelve el routing.
+        "com.americanexpress.android.acctsvcs.mx" to "AMEX"
     )
 
     /** Sender aliases notification-booked transactions are saved under. */

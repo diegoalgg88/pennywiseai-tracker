@@ -18,6 +18,7 @@ All parsers extend `BankParser`. But:
 - **Iranian banks** extend `BaseIranianBankParser` (Persian-digit amounts,
   Iranian SMS shapes).
 - **Thai banks** extend `BaseThailandBankParser`.
+- **Mexican banks** extend `BaseMexicoBankParser` (handles Mexican SMS formats, amounts in MXN, sender patterns).
 - Everything else extends `BankParser` directly.
 
 ## Key methods

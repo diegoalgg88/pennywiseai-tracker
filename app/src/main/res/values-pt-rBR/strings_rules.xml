@@ -258,9 +258,9 @@
     <string name="chat_memory_almost_full">Memória de chat quase cheia! Limpe o chat para continuar.</string>
     <string name="chat_memory_warning">A memória de bate-papo está %1$d%% cheia. Considere limpar em breve.</string>
     <string name="chat_memory_usage">A memória de bate-papo está %1$d%% cheia.</string>
-    <plurals name="chat_stats_model_messages">
-        <item quantity="one">Qwen 2.5 1.5B • Mensagem %1$d</item>
-        <item quantity="other">Qwen 2.5 1.5B • Mensagens de %1$d</item>
+        <plurals name="chat_stats_model_messages">
+        <item quantity="one">%2$s • %1$d message</item>
+        <item quantity="other">%2$s • %1$d messages</item>
     </plurals>
     <string name="chat_stats_tokens">Tokens %1$s</string>
     <string name="chat_stats_tokens_of_max">Tokens %1$s / %2$s</string>

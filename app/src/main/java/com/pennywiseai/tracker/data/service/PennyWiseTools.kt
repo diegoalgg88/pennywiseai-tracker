@@ -45,11 +45,36 @@ class PennyWiseTools : ToolSet {
         @ToolParam(description = "One of the known category names") category: String
     ): String = ""
 
+    @Tool(description = "Look up the status of the user's active budgets: limit, spent, remaining and percent used for each.")
+    fun budgetStatus(): String = ""
+
+    @Tool(description = "Look up this month's spending broken down by category, most spent first.")
+    fun categoryBreakdown(
+        @ToolParam(description = "How many categories to return, max 10; default 5") limit: Int
+    ): String = ""
+
+    @Tool(description = "Look up the user's most recent transactions.")
+    fun recentTransactions(
+        @ToolParam(description = "How many recent transactions to return, max 20; default 5") limit: Int,
+        @ToolParam(description = "How many days back to look, max 30; default 7") daysBack: Int
+    ): String = ""
+
+    @Tool(description = "Look up the balance of each of the user's accounts.")
+    fun accountBalance(): String = ""
+
+    @Tool(description = "Forecast the user's total spending for this month based on the daily average so far.")
+    fun spendingForecast(): String = ""
+
     companion object {
         const val ADD_TRANSACTION = "add_transaction"
         const val SPENDING_BY_CATEGORY = "spending_by_category"
         const val DELETE_TRANSACTION = "delete_transaction"
         const val UPDATE_TRANSACTION = "update_transaction"
         const val MONTH_SUMMARY = "month_summary"
+        const val BUDGET_STATUS = "budget_status"
+        const val CATEGORY_BREAKDOWN = "category_breakdown"
+        const val RECENT_TRANSACTIONS = "recent_transactions"
+        const val ACCOUNT_BALANCE = "account_balance"
+        const val SPENDING_FORECAST = "spending_forecast"
     }
 }

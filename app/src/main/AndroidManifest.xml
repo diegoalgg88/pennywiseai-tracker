@@ -30,6 +30,9 @@
          Opt-in via Settings; the app degrades gracefully if denied. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
+    <!-- Microphone for voice notes in chat (hold-to-record → transcribe → addTransaction) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Explicitly remove AD_ID permission to ensure privacy -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 

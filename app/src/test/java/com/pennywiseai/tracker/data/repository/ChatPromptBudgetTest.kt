@@ -9,13 +9,19 @@ import org.junit.Test
 /** #959: a fresh chat must always fit; only a long conversation runs out of room. */
 class ChatPromptBudgetTest {
 
-    private fun prompt(expense: List<String>, income: List<String>, accounts: List<String>) =
+    private fun prompt(
+        expense: List<String>,
+        income: List<String>,
+        accounts: List<String>,
+        customInstructions: String = ""
+    ) =
         LlmRepository.composeSystemPrompt(
             currentDate = "2026-10-21",
             monthLine = "₹12,345 spent, ₹50,000 income, 58 transactions",
             expenseCategories = expense,
             incomeCategories = income,
-            accounts = accounts
+            accounts = accounts,
+            customInstructions = customInstructions
         )
 
     @Test
@@ -72,5 +78,83 @@ class ChatPromptBudgetTest {
         val turn = "x".repeat(400) // ~100 tokens a message
         val history = listOf(p) + List(40) { turn }
         assertFalse(TokenUtils.fitsChatBudget(history, "one more question"))
+    }
+
+    @Test
+    fun `custom instructions appended and fit within budget`() {
+        val custom = "Always respond in Spanish. Use INR currency. Never suggest investing."
+        val p = prompt(listOf("Groceries"), listOf("Salary"), listOf("Test Bank 1111"), customInstructions = custom)
+        assertTrue(p.contains("--- Additional user instructions ---"))
+        assertTrue(p.contains(custom))
+        // With Qwen 2560 token context and ~2000 token budget, prompt should fit comfortably
+        assertTrue(TokenUtils.estimateTokens(p) < TokenUtils.CHAT_TOKEN_BUDGET / 2)
+        assertTrue(TokenUtils.fitsChatBudget(listOf(p), "cómo va mi presupuesto este mes?"))
+    }
+
+    @Test
+    fun `empty custom instructions not appended`() {
+        val p = prompt(listOf("Groceries"), listOf("Salary"), emptyList(), customInstructions = "")
+        assertFalse(p.contains("--- Additional user instructions ---"))
+        assertFalse(p.contains("Additional user instructions"))
+    }
+
+    @Test
+    fun `system prompt additions appended with semantic block`() {
+        val additions = "Always respond in first person. Be concise."
+        val p = LlmRepository.composeSystemPrompt(
+            currentDate = "2026-10-21",
+            monthLine = "₹12,345 spent, ₹50,000 income, 58 transactions",
+            expenseCategories = listOf("Groceries"),
+            incomeCategories = listOf("Salary"),
+            accounts = listOf("Test Bank 1111"),
+            customInstructions = "",
+            systemPromptAdditions = additions
+        )
+        assertTrue(p.contains("--- System prompt additions (semantic) ---"))
+        assertTrue(p.contains(additions))
+        // Should fit within budget
+        assertTrue(TokenUtils.estimateTokens(p) < TokenUtils.CHAT_TOKEN_BUDGET / 2)
+        assertTrue(TokenUtils.fitsChatBudget(listOf(p), "cómo va mi presupuesto este mes?"))
+    }
+
+    @Test
+    fun `empty system prompt additions not appended`() {
+        val p = LlmRepository.composeSystemPrompt(
+            currentDate = "2026-10-21",
+            monthLine = "₹12,345 spent, ₹50,000 income, 58 transactions",
+            expenseCategories = listOf("Groceries"),
+            incomeCategories = listOf("Salary"),
+            accounts = listOf("Test Bank 1111"),
+            customInstructions = "",
+            systemPromptAdditions = ""
+        )
+        assertFalse(p.contains("--- System prompt additions (semantic) ---"))
+        assertFalse(p.contains("System prompt additions"))
+    }
+
+    @Test
+    fun `both custom instructions and system prompt additions appended in order`() {
+        val custom = "Always respond in Spanish"
+        val additions = "Be concise. Use first person."
+        val p = LlmRepository.composeSystemPrompt(
+            currentDate = "2026-10-21",
+            monthLine = "₹12,345 spent, ₹50,000 income, 58 transactions",
+            expenseCategories = listOf("Groceries"),
+            incomeCategories = listOf("Salary"),
+            accounts = listOf("Test Bank 1111"),
+            customInstructions = custom,
+            systemPromptAdditions = additions
+        )
+        assertTrue(p.contains("--- Additional user instructions ---"))
+        assertTrue(p.contains(custom))
+        assertTrue(p.contains("--- System prompt additions (semantic) ---"))
+        assertTrue(p.contains(additions))
+        // Custom instructions should appear before system prompt additions
+        val customIndex = p.indexOf("--- Additional user instructions ---")
+        val additionsIndex = p.indexOf("--- System prompt additions (semantic) ---")
+        assertTrue(customIndex < additionsIndex)
+        // Both should fit within budget
+        assertTrue(TokenUtils.estimateTokens(p) < TokenUtils.CHAT_TOKEN_BUDGET / 2)
+        assertTrue(TokenUtils.fitsChatBudget(listOf(p), "cómo va mi presupuesto este mes?"))
     }
 }

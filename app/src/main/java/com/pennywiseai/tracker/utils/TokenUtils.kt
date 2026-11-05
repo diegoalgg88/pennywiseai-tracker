@@ -1,5 +1,6 @@
 package com.pennywiseai.tracker.utils
 
+import com.pennywiseai.tracker.core.ChatModelSpec
 import kotlin.math.roundToInt
 
 /**
@@ -7,12 +8,9 @@ import kotlin.math.roundToInt
  * Based on the rough approximation that 1 token ≈ 4 characters for English text.
  */
 object TokenUtils {
-    
+
     // Average characters per token for English text
     private const val CHARS_PER_TOKEN = 4.0
-
-    /** KV cache of the chat model (Qwen2.5-1.5B-Instruct-q8-ekv4096). */
-    const val MODEL_CONTEXT_TOKENS = 4096
 
     /**
      * Kept free for what the estimate can't see: the tool schemas LiteRT-LM adds
@@ -21,40 +19,53 @@ object TokenUtils {
     private const val RESERVED_TOKENS = 1536
 
     /**
+     * KV cache del modelo por defecto (Qwen2.5-1.5B q8-ekv4096). Para otro
+     * modelo usar [chatBudget] con su [ChatModelSpec.contextTokens].
+     */
+    const val MODEL_CONTEXT_TOKENS = 4096
+
+    /**
      * Estimated tokens (system prompt + history + next message) a chat may hold
      * before it has to be cleared. Was a hard-coded 1200, which a long category
      * or account list alone could exceed, blocking every new chat (#959).
      */
     const val CHAT_TOKEN_BUDGET = MODEL_CONTEXT_TOKENS - RESERVED_TOKENS
-    
+
+    /** Presupuesto de chat para el modelo dado: su KV cache menos lo reservado. */
+    fun chatBudget(spec: ChatModelSpec): Int = spec.contextTokens - RESERVED_TOKENS
+
     /**
      * Estimates the number of tokens in a given text.
      * This is a rough approximation based on character count.
-     * 
+     *
      * @param text The input text
      * @return Estimated token count
      */
     fun estimateTokens(text: String): Int {
         return (text.length / CHARS_PER_TOKEN).roundToInt()
     }
-    
+
     /**
      * Estimates tokens for a list of messages.
-     * 
+     *
      * @param messages List of message texts
      * @return Total estimated token count
      */
     fun estimateTokensForMessages(messages: List<String>): Int {
         return messages.fold(0) { acc, msg -> acc + estimateTokens(msg) }
     }
-    
+
     /** Whether a chat holding [context] (system prompt included) still has room for [nextMessage]. */
     fun fitsChatBudget(context: List<String>, nextMessage: String): Boolean =
         estimateTokens(context.joinToString("") + nextMessage) <= CHAT_TOKEN_BUDGET
 
+    /** Variante por modelo de [fitsChatBudget]. */
+    fun fitsChatBudget(context: List<String>, nextMessage: String, spec: ChatModelSpec): Boolean =
+        estimateTokens(context.joinToString("") + nextMessage) <= chatBudget(spec)
+
     /**
      * Formats a number in a user-friendly way (e.g., 1234 -> "1.2k")
-     * 
+     *
      * @param number The number to format
      * @return Formatted string
      */
@@ -66,10 +77,10 @@ object TokenUtils {
             else -> String.format("%.1fM", number / 1000000.0)
         }
     }
-    
+
     /**
      * Calculates the percentage of context used.
-     * 
+     *
      * @param usedTokens Number of tokens used
      * @param maxTokens Maximum context window size
      * @return Percentage as an integer (0-100)
@@ -78,11 +89,11 @@ object TokenUtils {
         if (maxTokens <= 0) return 0
         return ((usedTokens.toFloat() / maxTokens) * 100).roundToInt().coerceIn(0, 100)
     }
-    
+
     /**
      * Returns a color suggestion based on context usage.
      * Can be used to show warnings when approaching context limits.
-     * 
+     *
      * @param percentage Usage percentage (0-100)
      * @return Color suggestion as a string
      */
@@ -93,4 +104,7 @@ object TokenUtils {
             else -> "critical" // Red
         }
     }
+
+    /** True if the model has a positive chat budget (contextTokens > RESERVED_TOKENS). */
+    fun isChatCapable(spec: ChatModelSpec): Boolean = chatBudget(spec) > 0
 }

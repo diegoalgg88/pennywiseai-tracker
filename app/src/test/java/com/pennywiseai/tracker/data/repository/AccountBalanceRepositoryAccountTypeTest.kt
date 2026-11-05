@@ -72,9 +72,15 @@ class AccountBalanceRepositoryAccountTypeTest {
                 "getLatestBalance" -> {
                     val bankName = args[0] as String
                     val accountLast4 = args[1] as String
+                    // Desempate por índice de inserción: dos filas estampadas en el
+                    // mismo milisegundo (LocalDateTime.now() en Windows) hacen que
+                    // maxByOrNull por timestamp solo devuelva la primera — un no-op
+                    // aparente del último applyTransactionToBalance bajo carga.
                     balanceRows
-                        .filter { it.bankName == bankName && it.accountLast4 == accountLast4 }
-                        .maxByOrNull { it.timestamp }
+                        .withIndex()
+                        .filter { it.value.bankName == bankName && it.value.accountLast4 == accountLast4 }
+                        .maxByOrNull { it.index }
+                        ?.value
                 }
                 "updateAccountType" -> {
                     val (bankName, accountLast4, type, isCredit) = args

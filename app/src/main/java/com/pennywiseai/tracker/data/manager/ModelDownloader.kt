@@ -6,7 +6,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
-import com.pennywiseai.tracker.core.Constants
 import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
 import com.pennywiseai.tracker.data.repository.ModelRepository
 import com.pennywiseai.tracker.data.repository.ModelState
@@ -55,7 +54,7 @@ class ModelDownloader @Inject constructor(
 
     data class Progress(
         val downloadedBytes: Long = 0,
-        val totalBytes: Long = Constants.ModelDownload.MODEL_SIZE_BYTES,
+        val totalBytes: Long = 0,
         val failure: Failure? = null,
     )
 
@@ -118,16 +117,20 @@ class ModelDownloader @Inject constructor(
 
     private suspend fun download() {
         val part = partFile()
+        // El spec se lee al iniciar la descarga: cubre una selección de modelo
+        // hecha mientras esta corría (el .part pertenece al archivo del spec con
+        // el que empezó; re-leer a mitad lo corrompería con bytes de otro modelo).
+        val spec = modelRepository.activeSpec()
         try {
-            if (!hasSpaceFor(part)) {
+            if (!hasSpaceFor(part, spec)) {
                 fail(Failure.NO_SPACE)
                 return
             }
             modelRepository.updateModelState(ModelState.DOWNLOADING)
-            _progress.value = Progress(downloadedBytes = part.length())
+            _progress.value = Progress(downloadedBytes = part.length(), totalBytes = spec.sizeBytes)
             val fetch = ResumableFetch(
-                url = Constants.ModelDownload.MODEL_URL,
-                expectedBytes = Constants.ModelDownload.MODEL_SIZE_BYTES,
+                url = spec.url,
+                expectedBytes = spec.sizeBytes,
                 onProgress = { downloaded, total -> _progress.value = Progress(downloaded, total) },
             )
 
@@ -174,10 +177,10 @@ class ModelDownloader @Inject constructor(
     }
 
     /** Room for what's still to come, with the same 2× headroom a fresh download needs. */
-    private fun hasSpaceFor(part: File): Boolean {
+    private fun hasSpaceFor(part: File, spec: com.pennywiseai.tracker.core.ChatModelSpec): Boolean {
         val dir = part.parentFile ?: return true
         dir.mkdirs()
-        return dir.usableSpace >= Constants.ModelDownload.REQUIRED_SPACE_BYTES - part.length()
+        return dir.usableSpace >= spec.requiredSpaceBytes - part.length()
     }
 
     private fun isRoaming(): Boolean {

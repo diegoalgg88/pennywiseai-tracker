@@ -1,6 +1,6 @@
 # Database Migrations Guide
 
-PennyWise's Room database stands at version 58 (`SCHEMA_VERSION`, 23 entities). Every migration, auto or manual, is defined in one file: `app/src/main/java/com/pennywiseai/tracker/data/database/PennyWiseDatabase.kt`. Start there when you touch the schema; this doc explains how that file is organized and which rules keep upgrades safe.
+PennyWise's Room database stands at version 67 (`SCHEMA_VERSION`, 23 entities). Every migration, auto or manual, is defined in one file: `app/src/main/java/com/pennywiseai/tracker/data/database/PennyWiseDatabase.kt`. Start there when you touch the schema; this doc explains how that file is organized and which rules keep upgrades safe.
 
 ## The one rule: ALL_MIGRATIONS
 
@@ -10,7 +10,7 @@ Manual migrations register in a single shared array at the bottom of `PennyWiseD
 val ALL_MIGRATIONS: Array<Migration> = arrayOf(
     MIGRATION_12_14,
     MIGRATION_13_14,
-    // ... through MIGRATION_57_58
+    // ... through MIGRATION_66_67
 )
 ```
 
@@ -33,7 +33,7 @@ When Room can't infer your intent, give the auto-migration a spec class next to 
 
 ### Route 2: manual migration
 
-Reach for `Migration(from, to)` when data moves in ways Room can't generate: nullability flips, column guards on databases that may have drifted, backfills. The file holds 19 registered ones, `MIGRATION_12_14` through `MIGRATION_57_58`. Read two or three before writing your own — `MIGRATION_13_14` shows the house pattern of checking `PRAGMA table_info` before altering.
+Reach for `Migration(from, to)` when data moves in ways Room can't generate: nullability flips, column guards on databases that may have drifted, backfills. The file holds 19 registered ones, `MIGRATION_12_14` through `MIGRATION_66_67`. Read two or three before writing your own — `MIGRATION_13_14` shows the house pattern of checking `PRAGMA table_info` before altering.
 
 Two quirks worth knowing:
 

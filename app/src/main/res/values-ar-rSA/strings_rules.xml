@@ -287,12 +287,12 @@
     <string name="chat_memory_warning">ذاكرة الدردشة ممتلئة بنسبة %1$d%%. فكّر في مسحها قريبًا.</string>
     <string name="chat_memory_usage">ذاكرة الدردشة ممتلئة بنسبة %1$d%%.</string>
     <plurals name="chat_stats_model_messages">
-        <item quantity="zero">Qwen 2.5 1.5B • %1$d رسالة</item>
-        <item quantity="one">Qwen 2.5 1.5B • رسالة %1$d</item>
-        <item quantity="two">Qwen 2.5 1.5B • %1$d رسالة</item>
-        <item quantity="few">Qwen 2.5 1.5B • %1$d رسالة</item>
-        <item quantity="many">Qwen 2.5 1.5B • %1$d رسالة</item>
-        <item quantity="other">Qwen 2.5 1.5B • %1$d رسالة</item>
+        <item quantity="zero">%2$s • %1$d رسالة</item>
+        <item quantity="one">%2$s • رسالة %1$d</item>
+        <item quantity="two">%2$s • %1$d رسالة</item>
+        <item quantity="few">%2$s • %1$d رسالة</item>
+        <item quantity="many">%2$s • %1$d رسالة</item>
+        <item quantity="other">%2$s • %1$d رسالة</item>
     </plurals>
     <string name="chat_stats_tokens">%1$s رموز</string>
     <string name="chat_stats_tokens_of_max">%1$s / %2$s رموز</string>

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import com.pennywiseai.tracker.ui.effects.overScrollVertical
 import com.pennywiseai.tracker.ui.effects.rememberOverscrollFlingBehavior
 import androidx.compose.foundation.shape.CircleShape
@@ -40,13 +41,36 @@ import androidx.compose.ui.graphics.Color
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import com.pennywiseai.tracker.utils.TokenUtils
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.pennywiseai.tracker.ui.icons.categoryLabel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Scale
+import kotlinx.coroutines.CoroutineScope
+import android.net.Uri
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.layout.ContentScale
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import com.pennywiseai.tracker.utils.AudioRecorder
+import kotlinx.coroutines.delay
+import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
 fun ChatScreen(
     modifier: Modifier = Modifier,
@@ -65,21 +89,86 @@ fun ChatScreen(
     val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
     val downloadedMB by viewModel.downloadedMB.collectAsStateWithLifecycle()
     val totalMB by viewModel.totalMB.collectAsStateWithLifecycle()
+
+    // Attached image for preview before sending (W13)
+    val attachedImage by viewModel.attachedImage.collectAsStateWithLifecycle<Uri?>()
     
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
-    
-    // Auto-scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size, currentResponse) {
-        if (messages.isNotEmpty() || currentResponse.isNotEmpty()) {
-            scope.launch {
-                listState.animateScrollToItem(
-                    index = if (currentResponse.isNotEmpty()) messages.size else messages.size - 1
-                )
-            }
+    val context = LocalContext.current
+
+    // --- Adjuntos de imagen: cámara (FileProvider) y galería ---
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    var showAttachMenu by remember { mutableStateOf(false) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let { viewModel.attachImage(it) } }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingCameraUri?.let { viewModel.attachImage(it) }
+        } else {
+            // El usuario canceló la captura: el archivo temporal no se usa.
+            pendingCameraFile?.delete()
         }
+        pendingCameraUri = null
+        pendingCameraFile = null
+    }
+
+    // --- Nota de voz: mantener presionado para grabar ---
+    val voiceRecorder = remember(context, scope) {
+        VoiceNoteRecorder(context = context, scope = scope) { uri -> viewModel.sendAudio(uri) }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        // Conceder el permiso no inicia la captura: el usuario vuelve a mantener
+        // presionado el micrófono para grabar.
+    }
+
+    // El grabador corta solo al llegar a la duración máxima.
+    LaunchedEffect(voiceRecorder.isRecording) {
+        if (!voiceRecorder.isRecording) return@LaunchedEffect
+        val startedAt = System.currentTimeMillis()
+        while (voiceRecorder.isRecording) {
+            voiceRecorder.elapsedMs = System.currentTimeMillis() - startedAt
+            if (voiceRecorder.elapsedMs >= AudioRecorder.maxDurationMs) {
+                voiceRecorder.stop(send = true)
+                break
+            }
+            delay(100)
+        }
+    }
+
+    val launchCamera: () -> Unit = {
+        val dir = File(context.cacheDir, "camera_temp").apply { mkdirs() }
+        val file = File(dir, "camera_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        pendingCameraFile = file
+        pendingCameraUri = uri
+        cameraLauncher.launch(uri)
+    }
+    
+    // Auto-scroll: discreto para cambios de lista, muestreado durante el
+    // streaming. El índice real sale de layoutInfo porque la lista también
+    // contiene la tarjeta pendiente, el panel de thinking y el indicador de
+    // escritura: messages.size no es el último item.
+    LaunchedEffect(messages.size, pendingAction, uiState.isLoading) {
+        val lastIndex = listState.layoutInfo.totalItemsCount - 1
+        if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+    }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { currentResponse.length }
+            .sample(100)
+            .collect { if (it > 0) listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1) }
     }
 
     // Scroll behaviors for TopAppBar
@@ -143,11 +232,15 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 if (isDownloading) {
-                                    LinearWavyProgressIndicator(
+                                    LinearProgressIndicator(
                                         progress = { downloadProgress / 100f },
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(Spacing.sm)
+                                            .clip(RoundedCornerShape(Spacing.xs)),
+                                        drawStopIndicator = {}
                                     )
-                                    OutlinedButton(onClick = { viewModel.cancelDownload() }, shapes = ButtonDefaults.shapes()) {
+                                    OutlinedButton(onClick = { viewModel.cancelDownload() }) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = null,
@@ -157,7 +250,7 @@ fun ChatScreen(
                                         Text(stringResource(R.string.chat_cancel))
                                     }
                                 } else {
-                                    Button(onClick = { viewModel.startModelDownload() }, shapes = ButtonDefaults.shapes()) {
+                                    Button(onClick = { viewModel.startModelDownload() }) {
                                         Icon(
                                             Icons.Default.Download,
                                             contentDescription = null,
@@ -167,7 +260,7 @@ fun ChatScreen(
                                         Text(stringResource(R.string.chat_download_with_size, totalMB))
                                     }
                                 }
-                                TextButton(onClick = onNavigateToSettings, shapes = ButtonDefaults.shapes()) {
+                                TextButton(onClick = onNavigateToSettings) {
                                     Text(stringResource(R.string.chat_settings))
                                 }
                             }
@@ -189,7 +282,7 @@ fun ChatScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                             flingBehavior = rememberOverscrollFlingBehavior { listState }
                         ) {
-                            items(messages) { message ->
+                            items(messages, key = { it.id }) { message ->
                                 ChatMessageItem(message = message)
                             }
                         }
@@ -226,15 +319,18 @@ fun ChatScreen(
                                     }
                                     OutlinedButton(
                                         onClick = { viewModel.cancelDownload() },
-                                        modifier = Modifier.padding(start = Spacing.sm),
-                                        shapes = ButtonDefaults.shapes()
+                                        modifier = Modifier.padding(start = Spacing.sm)
                                     ) {
                                         Text(stringResource(R.string.chat_cancel))
                                     }
                                 }
-                                LinearWavyProgressIndicator(
+                                LinearProgressIndicator(
                                     progress = { downloadProgress / 100f },
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(Spacing.sm)
+                                        .clip(CircleShape),
+                                    drawStopIndicator = {}
                                 )
                             }
                         } else {
@@ -260,8 +356,7 @@ fun ChatScreen(
                                 }
                                 Button(
                                     onClick = { viewModel.startModelDownload() },
-                                    modifier = Modifier.padding(start = Spacing.sm),
-                                    shapes = ButtonDefaults.shapes()
+                                    modifier = Modifier.padding(start = Spacing.sm)
                                 ) {
                                     Icon(
                                         Icons.Default.Download,
@@ -289,7 +384,7 @@ fun ChatScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(Spacing.md)
                         ) {
-                            LoadingIndicator()
+                            CircularProgressIndicator()
                             Text(
                                 text = stringResource(R.string.chat_initializing_model),
                                 style = MaterialTheme.typography.bodyLarge
@@ -350,8 +445,7 @@ fun ChatScreen(
                                         onClick = { viewModel.clearChat() },
                                         colors = ButtonDefaults.textButtonColors(
                                             contentColor = MaterialTheme.colorScheme.error
-                                        ),
-                                        shapes = ButtonDefaults.shapes()
+                                        )
                                     ) {
                                         Icon(
                                             Icons.Default.Delete,
@@ -393,7 +487,7 @@ fun ChatScreen(
                                 }
                             }
 
-                            items(messages) { message ->
+                            items(messages, key = { it.id }) { message ->
                                 ChatMessageItem(message = message)
                             }
 
@@ -407,6 +501,14 @@ fun ChatScreen(
                                         onConfirm = { viewModel.confirmPendingAction() },
                                         onDismiss = { viewModel.dismissPendingAction() }
                                     )
+                                }
+                            }
+
+                            // Panel de thinking (solo developer mode): el razonamiento crudo
+                            // que el modelo emite aparte del texto final.
+                            if (isDeveloperMode && uiState.thinkingTokens.isNotBlank()) {
+                                item {
+                                    ThinkingPanel(thinkingTokens = uiState.thinkingTokens)
                                 }
                             }
 
@@ -459,7 +561,7 @@ fun ChatScreen(
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    IconButton(onClick = { viewModel.clearError() }, shapes = IconButtonDefaults.shapes()) {
+                                    IconButton(onClick = { viewModel.clearError() }) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = stringResource(R.string.chat_dismiss),
@@ -476,47 +578,223 @@ fun ChatScreen(
                             color = MaterialTheme.colorScheme.surface,
                             tonalElevation = 3.dp
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(Dimensions.Padding.content),
-                                verticalAlignment = Alignment.Bottom
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
                             ) {
-                                OutlinedTextField(
-                                    value = inputText,
-                                    onValueChange = { inputText = it },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .focusRequester(focusRequester),
-                                    placeholder = { Text(stringResource(R.string.chat_input_placeholder)) },
-                                    enabled = !uiState.isLoading,
-                                    maxLines = 3,
-                                    shape = MaterialTheme.shapes.extraLarge
-                                )
+                                // Attached image preview (W13)
+                                attachedImage?.let { uri ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(Dimensions.Padding.content),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Thumbnail
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(LocalContext.current)
+                                                .data(uri)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = stringResource(R.string.chat_image_preview),
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.width(Spacing.sm))
+                                        // Send/Remove buttons
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                                        ) {
+                                            Button(
+                                                onClick = { viewModel.sendAttachedImage() },
+                                                enabled = !uiState.isLoading,
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.primary
+                                                )
+                                            ) {
+                                                Text(stringResource(R.string.chat_send))
+                                            }
+                                            TextButton(
+                                                onClick = { viewModel.clearAttachment() },
+                                                enabled = !uiState.isLoading,
+                                                colors = ButtonDefaults.textButtonColors(
+                                                    contentColor = MaterialTheme.colorScheme.error
+                                                )
+                                            ) {
+                                                Text(stringResource(R.string.chat_remove))
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = Dimensions.Padding.content),
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                }
 
-                                Spacer(modifier = Modifier.width(Spacing.sm))
-
-                                FilledIconButton(
-                                    onClick = {
-                                        viewModel.sendMessage(inputText)
-                                        inputText = ""
-                                        // Keep keyboard open by requesting focus
-                                        focusRequester.requestFocus()
-                                    },
-                                    enabled = inputText.isNotBlank() && !uiState.isLoading,
-                                    modifier = Modifier.size(48.dp),
-                                    shapes = IconButtonDefaults.shapes()
+                                // Indicador de grabación de la nota de voz
+                                AnimatedVisibility(
+                                    visible = voiceRecorder.isRecording,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut()
                                 ) {
-                                    if (uiState.isLoading) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(Dimensions.Icon.medium),
-                                            strokeWidth = 2.dp
-                                        )
-                                    } else {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(Dimensions.Padding.content),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Icon(
-                                            Icons.AutoMirrored.Filled.Send,
-                                            contentDescription = stringResource(R.string.chat_send)
+                                            Icons.Default.Mic,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(Dimensions.Icon.small)
                                         )
+                                        Spacer(modifier = Modifier.width(Spacing.xs))
+                                        Text(
+                                            text = stringResource(R.string.chat_recording),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                        Spacer(modifier = Modifier.width(Spacing.xs))
+                                        Text(
+                                            text = formatRecordingTime(voiceRecorder.elapsedMs),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Text(
+                                            text = stringResource(R.string.chat_release_to_send),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(Dimensions.Padding.content),
+                                    verticalAlignment = Alignment.Bottom
+                                ) {
+                                    // Menú de adjuntos: cámara o galería
+                                    Box {
+                                        IconButton(
+                                            onClick = { showAttachMenu = true },
+                                            enabled = !uiState.isLoading
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AttachFile,
+                                                contentDescription = stringResource(R.string.chat_attach_content_description)
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = showAttachMenu,
+                                            onDismissRequest = { showAttachMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.chat_camera_take_photo)) },
+                                                onClick = {
+                                                    showAttachMenu = false
+                                                    launchCamera()
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.chat_camera_choose_gallery)) },
+                                                onClick = {
+                                                    showAttachMenu = false
+                                                    galleryLauncher.launch("image/*")
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Image, contentDescription = null)
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = inputText,
+                                        onValueChange = { inputText = it },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .focusRequester(focusRequester),
+                                        placeholder = { Text(stringResource(R.string.chat_input_placeholder)) },
+                                        enabled = !uiState.isLoading,
+                                        maxLines = 3,
+                                        shape = MaterialTheme.shapes.extraLarge
+                                    )
+
+                                    Spacer(modifier = Modifier.width(Spacing.sm))
+
+                                    // Micrófono: mantener presionado para grabar la nota de voz
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (voiceRecorder.isRecording) MaterialTheme.colorScheme.error
+                                                else MaterialTheme.colorScheme.primary
+                                            )
+                                            .pointerInput(Unit) {
+                                                detectTapGestures(
+                                                    onPress = {
+                                                        val granted = ContextCompat.checkSelfPermission(
+                                                            context,
+                                                            Manifest.permission.RECORD_AUDIO
+                                                        ) == PackageManager.PERMISSION_GRANTED
+                                                        if (granted) {
+                                                            voiceRecorder.start()
+                                                            tryAwaitRelease()
+                                                            voiceRecorder.stop(send = true)
+                                                        } else {
+                                                            // Se pide el permiso primero; la grabación
+                                                            // arranca en el siguiente intento de presión.
+                                                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                                        }
+                                                    }
+                                                )
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Mic,
+                                            contentDescription = stringResource(R.string.chat_microphone_content_description),
+                                            tint = if (voiceRecorder.isRecording) MaterialTheme.colorScheme.onError
+                                            else MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(Spacing.sm))
+
+                                    FilledIconButton(
+                                        onClick = {
+                                            viewModel.sendMessage(inputText)
+                                            inputText = ""
+                                            // Keep keyboard open by requesting focus
+                                            focusRequester.requestFocus()
+                                        },
+                                        enabled = inputText.isNotBlank() && !uiState.isLoading,
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        if (uiState.isLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(Dimensions.Icon.medium),
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Send,
+                                                contentDescription = stringResource(R.string.chat_send)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -594,8 +872,7 @@ fun TokenLimitWarning(
                     onClick = onClearChat,
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = contentColor
-                    ),
-                    shapes = ButtonDefaults.shapes()
+                    )
                 ) {
                     Text(stringResource(R.string.chat_clear), fontWeight = FontWeight.Bold)
                 }
@@ -645,7 +922,13 @@ fun DeveloperInfoCard(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = pluralStringResource(R.plurals.chat_stats_model_messages, chatStats.messageCount, chatStats.messageCount),
+                        // El plural usa %1$d (conteo) y %2$s (modelo activo).
+                        text = pluralStringResource(
+                            R.plurals.chat_stats_model_messages,
+                            chatStats.messageCount,
+                            chatStats.messageCount,
+                            chatStats.modelDisplayName
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -738,6 +1021,127 @@ fun DeveloperInfoCard(
     }
 }
 
+/**
+ * Panel de chain-of-thought (solo developer mode). Muestra el razonamiento crudo
+ * que LiteRT-LM emite por separado del texto final de la respuesta.
+ */
+@Composable
+private fun ThinkingPanel(
+    thinkingTokens: String,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val tokenCount = remember(thinkingTokens) { TokenUtils.estimateTokens(thinkingTokens) }
+
+    PennyWiseCardV2(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        onClick = { expanded = !expanded }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(Dimensions.Icon.small),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = stringResource(R.string.chat_thinking_title),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_thinking_tokens, tokenCount),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = stringResource(
+                        if (expanded) R.string.chat_thinking_collapse else R.string.chat_thinking_expand
+                    ),
+                    modifier = Modifier.size(Dimensions.Icon.small),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Text(
+                text = thinkingTokens,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = Spacing.sm)
+            )
+        }
+    }
+}
+
+/**
+ * Estado del grabador de notas de voz (mantener presionado para grabar).
+ * La captura PCM/WAV vive en [AudioRecorder]; aquí solo se orquestan inicio,
+ * cronómetro y entrega del Uri al ViewModel.
+ */
+private class VoiceNoteRecorder(
+    private val context: Context,
+    private val scope: CoroutineScope,
+    private val onRecorded: (Uri) -> Unit,
+) {
+    var isRecording by mutableStateOf(false)
+        private set
+
+    var elapsedMs by mutableStateOf(0L)
+
+    /** Inicia la captura. Devuelve false si ya había una grabación o el recorder falló. */
+    fun start(): Boolean {
+        if (isRecording) return false
+        if (!AudioRecorder.start(context)) return false
+        isRecording = true
+        elapsedMs = 0L
+        return true
+    }
+
+    /** Detiene la captura; con [send] true entrega el Uri para enviarlo al chat. */
+    fun stop(send: Boolean) {
+        if (!isRecording) return
+        isRecording = false
+        if (!send) {
+            AudioRecorder.cancel()
+            return
+        }
+        scope.launch {
+            AudioRecorder.stop(context)?.let(onRecorded)
+        }
+    }
+}
+
+/** Formatea la duración de la grabación como m:ss. */
+private fun formatRecordingTime(millis: Long): String {
+    val totalSeconds = (millis / 1000).coerceAtLeast(0)
+    return String.format(Locale.getDefault(), "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+}
+
 private val THINKING_LINES = listOf(
     R.string.chat_thinking_reading,
     R.string.chat_thinking_working,
@@ -756,7 +1160,9 @@ fun TypingIndicator(
         horizontalArrangement = Arrangement.Start
     ) {
         PennyWiseCardV2(
-            modifier = Modifier.widthIn(max = 280.dp),
+            modifier = Modifier.widthIn(
+                max = (LocalConfiguration.current.screenWidthDp * 0.85f).dp.coerceIn(280.dp, 560.dp)
+            ),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer
             )
@@ -812,7 +1218,11 @@ fun ChatMessageItem(
     message: com.pennywiseai.tracker.data.database.entity.ChatMessage,
     isStreaming: Boolean = false
 ) {
-    val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val context = LocalContext.current
+    // La hora sigue la preferencia 12/24 h del sistema, no un formato fijo.
+    val timeFormat = remember(context) { android.text.format.DateFormat.getTimeFormat(context) }
+    // La burbuja ocupa hasta 85% del ancho en móvil y se ensancha en tablet/landscape.
+    val maxBubble = (LocalConfiguration.current.screenWidthDp * 0.85f).dp.coerceIn(280.dp, 560.dp)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -820,7 +1230,7 @@ fun ChatMessageItem(
     ) {
         PennyWiseCardV2(
             modifier = Modifier
-                .widthIn(max = 280.dp)
+                .widthIn(max = maxBubble)
                 .animateContentSize(),
             colors = CardDefaults.cardColors(
                 containerColor = if (message.isUser)
@@ -829,15 +1239,16 @@ fun ChatMessageItem(
                     MaterialTheme.colorScheme.secondaryContainer
             )
         ) {
-            Text(
-                // Amounts are baked into the stored text; mask them on screen only.
-                text = com.pennywiseai.tracker.utils.CurrencyFormatter.maskAmountsIn(message.message),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (message.isUser)
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                else
-                    MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            SelectionContainer {
+                Text(
+                    text = message.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (message.isUser)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
 
             Spacer(modifier = Modifier.height(Spacing.xs))
 
@@ -945,7 +1356,7 @@ private fun PendingActionCard(
             listOf(
                 stringResource(if (d.type == income) R.string.chat_action_add_income else R.string.chat_action_add_expense),
                 "${fmt(d.amount)} · ${d.merchant}",
-                stringResource(R.string.chat_action_add_detail, categoryLabel(d.category), d.accountLabel),
+                stringResource(R.string.chat_action_add_detail, d.category, d.accountLabel),
                 stringResource(R.string.chat_action_add)
             )
         }
@@ -954,7 +1365,7 @@ private fun PendingActionCard(
             listOf(
                 stringResource(R.string.chat_action_delete_title),
                 "${own(t)} · ${t.merchantName}",
-                "${categoryLabel(t.category)} · ${t.dateTime.toLocalDate()}",
+                "${t.category} · ${t.dateTime.toLocalDate()}",
                 stringResource(R.string.chat_action_delete)
             )
         }
@@ -962,12 +1373,12 @@ private fun PendingActionCard(
             val t = action.transaction
             val changes = listOfNotNull(
                 action.newMerchant?.let { stringResource(R.string.chat_action_change_merchant, it) },
-                action.newCategory?.let { stringResource(R.string.chat_action_change_category, categoryLabel(it)) }
+                action.newCategory?.let { stringResource(R.string.chat_action_change_category, it) }
             ).joinToString(", ")
             listOf(
                 stringResource(R.string.chat_action_update_title),
                 "${own(t)} · ${t.merchantName}",
-                "${categoryLabel(t.category)} · ${t.dateTime.toLocalDate()}\n$changes",
+                "${t.category} · ${t.dateTime.toLocalDate()}\n$changes",
                 stringResource(R.string.chat_action_update)
             )
         }
@@ -985,13 +1396,12 @@ private fun PendingActionCard(
             Text(text = headline, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = fg)
             Text(text = detail, style = MaterialTheme.typography.bodySmall, color = fg)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                OutlinedButton(onClick = onDismiss, enabled = enabled, modifier = Modifier.weight(1f), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.chat_cancel)) }
+                OutlinedButton(onClick = onDismiss, enabled = enabled, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.chat_cancel)) }
                 Button(
                     onClick = onConfirm,
                     enabled = enabled,
                     modifier = Modifier.weight(1f),
-                    colors = if (isDelete) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
-                    shapes = ButtonDefaults.shapes()
+                    colors = if (isDelete) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors()
                 ) { Text(button) }
             }
         }

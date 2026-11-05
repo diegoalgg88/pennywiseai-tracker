@@ -1,4 +1,4 @@
-package com.pennywiseai.tracker.ui.screens.settings
+﻿package com.pennywiseai.tracker.ui.screens.settings
 
 import android.content.Context
 import android.net.Uri
@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -21,6 +23,7 @@ import com.pennywiseai.tracker.R
 import com.pennywiseai.tracker.billing.EntitlementGate
 import com.pennywiseai.tracker.ui.UiText
 import com.pennywiseai.tracker.core.Constants.Links
+import com.pennywiseai.tracker.data.repository.LlmRepository
 import com.pennywiseai.tracker.data.repository.ModelRepository
 import com.pennywiseai.tracker.data.repository.ModelState
 import com.pennywiseai.tracker.data.repository.UnrecognizedSmsRepository
@@ -46,11 +49,15 @@ import com.pennywiseai.tracker.utils.SmsReportUrlBuilder
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.pennywiseai.tracker.core.Constants
+import com.pennywiseai.tracker.core.CustomModelConfig
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.math.absoluteValue
 import java.net.URLEncoder
 import java.io.File
 import javax.inject.Inject
@@ -60,6 +67,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val modelRepository: ModelRepository,
+    private val llmRepository: LlmRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val unrecognizedSmsRepository: UnrecognizedSmsRepository,
     private val transactionRepository: TransactionRepository,
@@ -75,7 +83,7 @@ class SettingsViewModel @Inject constructor(
     entitlementGate: EntitlementGate,
 ) : ViewModel() {
 
-    /** Drives the Settings → Pro row: shows "Active" when true, "Upgrade" when false. */
+    /** Drives the Settings â†’ Pro row: shows "Active" when true, "Upgrade" when false. */
     val isProEntitled: StateFlow<Boolean> = entitlementGate.isProEntitled
     
     
@@ -100,7 +108,7 @@ class SettingsViewModel @Inject constructor(
     val exportedBackupFile: StateFlow<File?> = _exportedBackupFile.asStateFlow()
 
     // "Delete all transactions": null while the confirmation isn't open, else the
-    // number of rows the delete would remove — observed, not snapshotted, so the
+    // number of rows the delete would remove â€” observed, not snapshotted, so the
     // figure the user is consenting to stays the one the delete will act on even
     // if a background scan writes a row while the dialog is up.
     private val _deleteAllTransactionsRequested = MutableStateFlow(false)
@@ -140,12 +148,36 @@ class SettingsViewModel @Inject constructor(
     private val _requestFolderPicker = MutableStateFlow(false)
     val requestFolderPicker: StateFlow<Boolean> = _requestFolderPicker.asStateFlow()
 
-    private var currentFolderPickerAction: FolderPickerAction = FolderPickerAction.ENABLE
-
-    
-    // Developer mode state
+    private var currentFolderPickerAction: FolderPickerAction = FolderPickerAction.ENABLE// Developer mode state
     val isDeveloperModeEnabled = userPreferencesRepository.isDeveloperModeEnabled
+    // Thinking (developer mode only)
+    val isThinkingEnabled = userPreferencesRepository.isThinkingEnabled
+    val thinkingBudgetTokens = userPreferencesRepository.thinkingBudgetTokens
+    val thinkingShowRaw = userPreferencesRepository.thinkingShowRaw
     
+    // Custom instructions for AI chat (F7-T1)
+    val customInstructions = userPreferencesRepository.customInstructions
+
+    // System prompt additions (F8-T1). Semantic additions appended to system prompt.
+    val systemPromptAdditions = userPreferencesRepository.systemPromptAdditions
+
+    // Custom HF Model config (F8-T2). Experimental section: validate pre-download, pin SHA-256.
+    private val _customModelConfig = MutableStateFlow<CustomModelConfig?>(null)
+    val customModelConfig: StateFlow<CustomModelConfig?> = _customModelConfig.asStateFlow()
+
+    private val _customModelValidationState = MutableStateFlow<CustomModelValidationState>(CustomModelValidationState.IDLE)
+    val customModelValidationState: StateFlow<CustomModelValidationState> = _customModelValidationState.asStateFlow()
+
+    /** Enum para el estado de validación del modelo custom. */
+    enum class CustomModelValidationState {
+        IDLE,
+        PENDING_VALIDATION,
+        VALIDATED,
+        DOWNLOADING,
+        READY,
+        ERROR
+    }
+
     // SMS scan period state
     val smsScanMonths = userPreferencesRepository.smsScanMonths
     val smsScanAllTime = userPreferencesRepository.smsScanAllTime
@@ -174,7 +206,7 @@ class SettingsViewModel @Inject constructor(
 
     // Derive the selectable set from the user's ACTUAL data (transaction + account
     // currencies) on top of the common seed list. This way any currency the user
-    // really holds — e.g. MZN held only in an account — is always selectable, instead
+    // really holds â€” e.g. MZN held only in an account â€” is always selectable, instead
     // of silently missing because it wasn't in the hand-maintained supported list.
     val availableCurrencies: StateFlow<List<String>> = combine(
         transactionRepository.getAllCurrencies(),
@@ -272,13 +304,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     private suspend fun checkModelFile() {
-        val modelFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), Constants.ModelDownload.MODEL_FILE_NAME)
+        val modelFile = modelRepository.getModelFile()
         Log.d("SettingsViewModel", "Checking model file at: ${modelFile.absolutePath}")
-        Log.d("SettingsViewModel", "Model file exists: ${modelFile.exists()}, size: ${modelFile.length()}, expected: ${Constants.ModelDownload.MODEL_SIZE_BYTES}")
+        Log.d("SettingsViewModel", "Model file exists: ${modelFile.exists()}, size: ${modelFile.length()}, expected: ${modelRepository.activeSpec().sizeBytes}")
 
         // Drop an obviously-incomplete partial file before verifying.
         // Allow 5% variance in file size as download sizes can vary slightly.
-        val minSize = (Constants.ModelDownload.MODEL_SIZE_BYTES * 0.95).toLong()
+        val minSize = (modelRepository.activeSpec().sizeBytes * 0.95).toLong()
         if (modelFile.exists() && modelFile.length() < minSize) {
             Log.d("SettingsViewModel", "Partial model file found (${modelFile.length()} bytes), deleting")
             modelFile.delete()
@@ -303,6 +335,35 @@ class SettingsViewModel @Inject constructor(
     
     fun startModelDownload() = modelDownloader.start()
 
+    /** Modelos que este device puede correr (RAM gate) â€” para el selector de Settings. */
+    val supportedModels: Flow<List<com.pennywiseai.tracker.core.ChatModelSpec>> =
+        userPreferencesRepository.customModelConfig
+            .map { modelRepository.supportedModelsWithCustom(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), modelRepository.supportedModelsWithCustom(null))
+
+    /** Id del modelo activo â€” para marcar la opciÃ³n seleccionada en el selector. */
+    private val _selectedModelId = MutableStateFlow(modelRepository.activeSpec().id)
+    val selectedModelId: StateFlow<String> = _selectedModelId.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            modelRepository.refreshActiveModel()
+            _selectedModelId.value = modelRepository.activeSpec().id
+        }
+    }
+
+    /**
+     * Cambia el modelo de chat. El engine vivo (si hay) queda huÃ©rfano del nuevo
+     * spec; [LlmRepository.ensureConversation] lo detecta por path y lo recarga.
+     */
+    fun selectModel(modelId: String) {
+        viewModelScope.launch {
+            modelRepository.selectModel(modelId)
+            _selectedModelId.value = modelRepository.activeSpec().id
+            checkModelFile()
+        }
+    }
+
     fun cancelDownload() {
         modelDownloader.cancel()
         _downloadState.value = DownloadState.NOT_DOWNLOADED
@@ -313,7 +374,7 @@ class SettingsViewModel @Inject constructor(
 
     fun deleteModel() {
         viewModelScope.launch {
-            val modelFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), Constants.ModelDownload.MODEL_FILE_NAME)
+            val modelFile = modelRepository.getModelFile()
             if (modelFile.exists()) {
                 modelFile.delete()
                 _downloadState.value = DownloadState.NOT_DOWNLOADED
@@ -353,7 +414,7 @@ class SettingsViewModel @Inject constructor(
     /**
      * Clears the transaction history. The delete and the balance settlement that
      * follows it are one database transaction inside
-     * [DeleteAllTransactionsUseCase] — see there for what happens to each kind of
+     * [DeleteAllTransactionsUseCase] â€” see there for what happens to each kind of
      * account's balance and why.
      */
     private suspend fun onDeleteAllSucceeded(deleted: Int) {
@@ -361,8 +422,8 @@ class SettingsViewModel @Inject constructor(
         com.pennywiseai.tracker.widget.RecentTransactionsWidgetDataStore.clear(context)
 
         // SMS ingestion runs independently and can commit a row straight after
-        // the delete's transaction commits. That isn't the delete failing — the
-        // authorised history did go — but reporting a clean sweep while rows
+        // the delete's transaction commits. That isn't the delete failing â€” the
+        // authorised history did go â€” but reporting a clean sweep while rows
         // exist would be a lie, so say what actually happened.
         val arrived = transactionRepository.observeAllTransactionCount().first()
         _deleteAllTransactionsResult.value = buildList {
@@ -433,9 +494,148 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setThinkingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setThinkingEnabled(enabled)
+        }
+    }
+
+    fun setThinkingBudgetTokens(tokens: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setThinkingBudgetTokens(tokens)
+        }
+    }
+
+    fun setThinkingShowRaw(showRaw: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setThinkingShowRaw(showRaw)
+        }
+    }
+
+    /** Custom instructions for AI chat (F7-T1). Empty string clears the preference. */
+    fun setCustomInstructions(instructions: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCustomInstructions(instructions)
+            llmRepository.updateSystemPrompt()
+        }
+    }
+
+    /** System prompt additions (F8-T1). Semantic additions. Empty string clears the preference. */
+    fun setSystemPromptAdditions(additions: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSystemPromptAdditions(additions)
+            llmRepository.updateSystemPrompt()
+        }
+    }
+
+    /**
+     * Validates a custom HuggingFace model configuration before allowing download (F8-T2).
+     * Performs a HEAD request to https://huggingface.co/api/models/{repoId}/resolve/main/{fileName}
+     * to verify the file exists and get its size. Requires SHA-256 to be provided.
+     */
+    fun validateCustomModel(
+        repoId: String,
+        fileName: String,
+        sha256: String,
+        sizeBytes: Long,
+        contextTokens: Int,
+        minRamBytes: Long,
+        displayName: String
+    ) {
+        if (repoId.isBlank() || fileName.isBlank() || sha256.isBlank()) {
+            _customModelValidationState.value = CustomModelValidationState.ERROR
+            return
+        }
+
+        _customModelValidationState.value = CustomModelValidationState.PENDING_VALIDATION
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val url = "https://huggingface.co/api/models/$repoId/resolve/main/$fileName"
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.apply {
+                    requestMethod = "HEAD"
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                }
+
+                val responseCode = connection.responseCode
+                if (responseCode == 200) {
+                    val contentLength = connection.getHeaderField("Content-Length")?.toLongOrNull() ?: 0L
+                    val expectedSha256 = connection.getHeaderField("X-Huggingface-Sha256")?.lowercase() ?: ""
+
+                    // Verify size matches (allow small variance)
+                    val sizeMatches = if (contentLength > 0) {
+                        (sizeBytes - contentLength).absoluteValue <= (contentLength * 0.05).toLong()
+                    } else {
+                        true // Can't verify size if server doesn't provide it
+                    }
+
+                    // Verify SHA-256 if server provides it
+                    val shaMatches = if (expectedSha256.isNotBlank()) {
+                        expectedSha256 == sha256.lowercase()
+                    } else {
+                        true // Can't verify SHA if server doesn't provide it
+                    }
+
+                    if (sizeMatches && shaMatches) {
+                        val config = CustomModelConfig(
+                            repoId = repoId,
+                            fileName = fileName,
+                            sha256 = sha256.lowercase(),
+                            sizeBytes = sizeBytes,
+                            contextTokens = contextTokens,
+                            minRamBytes = minRamBytes,
+                            displayName = displayName
+                        )
+                        _customModelConfig.value = config
+                        _customModelValidationState.value = CustomModelValidationState.VALIDATED
+                    } else {
+                        Log.w("SettingsViewModel", "Custom model validation failed: sizeMatches=$sizeMatches, shaMatches=$shaMatches, expectedSha=$expectedSha256, providedSha=$sha256")
+                        _customModelValidationState.value = CustomModelValidationState.ERROR
+                    }
+                } else {
+                    Log.w("SettingsViewModel", "Custom model HEAD request failed with code: $responseCode")
+                    _customModelValidationState.value = CustomModelValidationState.ERROR
+                }
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "Custom model validation error", e)
+                _customModelValidationState.value = CustomModelValidationState.ERROR
+            }
+        }
+    }
+
+    /**
+     * Saves the validated custom model config to preferences (F8-T2).
+     * Should only be called after validateCustomModel returns VALIDATED.
+     */
+    fun saveCustomModelConfig() {
+        val config = _customModelConfig.value
+        if (config != null && _customModelValidationState.value == CustomModelValidationState.VALIDATED) {
+            viewModelScope.launch {
+                userPreferencesRepository.setCustomModelConfig(config.toJson())
+                _customModelValidationState.value = CustomModelValidationState.READY
+                // Refresh model list and state
+                checkDownloadStatus()
+            }
+        }
+    }
+
+    /**
+     * Clears the custom model config (F8-T2).
+     */
+    fun clearCustomModelConfig() {
+        viewModelScope.launch {
+            userPreferencesRepository.setCustomModelConfig("")
+            _customModelConfig.value = null
+            _customModelValidationState.value = CustomModelValidationState.IDLE
+            checkDownloadStatus()
+        }
+    }
+
     /**
      * Flip the UPI-contact-resolution preference. The screen is responsible
-     * for ensuring READ_CONTACTS is granted before passing `true` — this
+     * for ensuring READ_CONTACTS is granted before passing `true` â€” this
      * just persists. Toggling either direction wipes the resolver cache so
      * stale results don't leak across the flag flip (and so a re-enable
      * after permission grant picks up the user's contacts immediately).
@@ -619,7 +819,7 @@ class SettingsViewModel @Inject constructor(
     
     /**
      * Imports historical transactions from a CSV in PennyWise's own export format.
-     * Free feature (onboarding/migration) — not gated behind Pro.
+     * Free feature (onboarding/migration) â€” not gated behind Pro.
      */
     fun importCsv(uri: android.net.Uri) {
         viewModelScope.launch {
@@ -763,7 +963,7 @@ class SettingsViewModel @Inject constructor(
         userPreferencesRepository.setScheduledFolderBackupEnabled(true)
         scheduledFolderBackupScheduler.schedule()
         // Only claim success if the immediate backup actually wrote. On failure,
-        // performFolderBackup has already surfaced the reason — don't clobber it.
+        // performFolderBackup has already surfaced the reason â€” don't clobber it.
         if (performFolderBackup(showSuccessMessage = false)) {
             _importExportMessage.value = UiText.Res(R.string.settings_folder_backup_enabled)
         }
@@ -798,7 +998,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Sets the main account and derives the default currency from it — unless the user
+     * Sets the main account and derives the default currency from it â€” unless the user
      * has already picked a currency explicitly, in which case that choice is kept.
      */
     fun setMainAccount(account: AccountBalanceEntity) {
@@ -831,3 +1031,9 @@ private enum class FolderPickerAction {
     ENABLE,
     CHANGE
 }
+
+
+
+
+
+

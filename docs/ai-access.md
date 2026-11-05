@@ -13,7 +13,7 @@ The connection then shows under **Connected apps**, where you can disconnect it 
 ## Ask questions
 
 1. Start an **AI session** in the app (15, 30 or 60 minutes), or tap the **PennyWise AI** tile in Quick Settings. A notification shows while it's on, with **+15 min** and **Stop**.
-2. Ask the AI app anything, for example “What did I spend on food last month?” or “Which subscriptions renew this week?”.
+2. Ask the AI app anything, for example "What did I spend on food last month?" or "Which subscriptions renew this week?".
 
 Outside a session the AI app gets a message telling you to start one. Nothing can reach your data then.
 
@@ -21,7 +21,7 @@ If you reinstall PennyWise or clear its data, apps connected before can't reach 
 
 ## Dashboard on a computer
 
-Open `https://ai.pennywise.zynth.dev/dashboard/` on a computer, click **Connect to my phone**, and enter a pairing code. It shows your spending over time, a category-by-month view, comparisons with the previous period, spending by account and weekday, your full transaction history with filters and CSV download, and your accounts and subscriptions. It needs an AI session on, like any AI app, and appears as “PennyWise dashboard” in your connected apps.
+Open `https://ai.pennywise.zynth.dev/dashboard/` on a computer, click **Connect to my phone**, and enter a pairing code. It shows your spending over time, a category-by-month view, comparisons with the previous period, spending by account and weekday, your full transaction history with filters and CSV download, and your accounts and subscriptions. It needs an AI session on, like any AI app, and appears as "PennyWise dashboard" in your connected apps.
 
 ## What AI apps can and can't see
 
@@ -34,3 +34,26 @@ Open `https://ai.pennywise.zynth.dev/dashboard/` on a computer, click **Connect 
 ## Use your own relay
 
 For full control, run the open-source relay on your own Cloudflare account ([relay/README.md](../relay/README.md#self-hosting)), then in the app open **Use your own relay** and enter its `https://` address. Switching relays disconnects every AI app; connect them again with the new address.
+
+## Architecture (current as of 2026-11-03)
+
+### Relay (`relay/src/`)
+- Cloudflare Worker + Durable Object `Phone` (one per phone)
+- Phone maintains outbound WebSocket during session; relay passes bytes, no storage/logging
+- OAuth 2.1 on Worker side; pairing via 6-digit code (5 min, single use)
+- Endpoints: `POST /device`, `POST /device/pair`, `GET /device/connect`, `POST /mcp` (Streamable HTTP), dashboard web
+
+### App (`aiaccess/`)
+- `AiRelayClient.kt` — Ktor WebSocket, secret encrypted in Keystore via `DeviceSecretBox.kt`
+- `AiSessionService.kt` — Foreground service, sessions 15/30/60 min extendable, QS tile
+- `AiTools.kt` / `AiToolLogic.kt` — Execute tool calls from Room
+
+### MCP Tools (4 read-only, `relay/src/tools.ts`)
+| Tool | Description |
+|---|---|
+| `search_transactions` | Filter by date, category, merchant, amount, currency, account |
+| `spending_summary` | Totals by period, category breakdown |
+| `list_accounts` | Balances with masked last-4 |
+| `list_subscriptions` | Active subscriptions with next billing date |
+
+All amounts include currency; accounts masked to last 4 digits. Never exposed: SMS, full account numbers, notes, receipts, budgets, goals, loans, settings.

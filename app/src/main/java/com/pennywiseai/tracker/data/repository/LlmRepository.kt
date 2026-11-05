@@ -1,5 +1,7 @@
 package com.pennywiseai.tracker.data.repository
 
+import android.content.Context
+import android.content.res.Configuration
 import android.util.Log
 import com.pennywiseai.tracker.data.database.dao.ChatDao
 import com.pennywiseai.tracker.data.database.entity.ChatMessage
@@ -7,6 +9,8 @@ import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.model.ChatContext
 import com.pennywiseai.tracker.data.preferences.IgnoredAccountsStore
 import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import com.pennywiseai.tracker.core.ChatModels
+import com.pennywiseai.tracker.core.ThinkingConfig
 import com.pennywiseai.tracker.domain.service.LlmService
 import com.pennywiseai.shared.domain.mapping.SharedCategoryMapping
 import com.pennywiseai.tracker.data.model.TransactionDraft
@@ -14,6 +18,7 @@ import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.model.TransactionFinder
 import com.pennywiseai.tracker.data.model.PendingChatAction
 import com.pennywiseai.tracker.data.service.PennyWiseTools
+import com.pennywiseai.tracker.domain.service.ChatError
 import com.pennywiseai.tracker.domain.service.LlmEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,15 +26,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.pennywiseai.tracker.utils.CurrencyFormatter
 import com.pennywiseai.tracker.utils.TokenUtils
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import java.math.BigDecimal
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.pennywiseai.tracker.R
 
 @Singleton
-class LlmRepository @Inject constructor(
+open class LlmRepository @Inject constructor(
     private val llmService: LlmService,
     private val chatDao: ChatDao,
     private val modelRepository: ModelRepository,
@@ -38,8 +46,13 @@ class LlmRepository @Inject constructor(
     private val categoryRepository: CategoryRepository,
     private val accountBalanceRepository: AccountBalanceRepository,
     private val transactionRepository: TransactionRepository,
-    private val ignoredAccountsStore: IgnoredAccountsStore
+    private val budgetRepository: BudgetRepository,
+    private val ignoredAccountsStore: IgnoredAccountsStore,
+    @ApplicationContext private val context: Context
 ) {
+
+    // True while a reply streams: updateSystemPrompt() defers closing the conversation until it ends.
+    @Volatile private var generating = false
 
     // A transaction the model proposed via the add_transaction tool (#170),
     // waiting for the user's confirmation on the chat screen. Never auto-saved.
@@ -64,7 +77,7 @@ class LlmRepository @Inject constructor(
         )
         chatDao.insertMessage(userChatMessage)
 
-        ensureConversation(pending = userChatMessage)
+        ensureConversation()
 
         // Use synchronous collection for non-streaming path
         val responseBuilder = StringBuilder()
@@ -86,7 +99,7 @@ class LlmRepository @Inject constructor(
         return Result.success(response)
     }
 
-    fun sendMessageStream(userMessage: String): Flow<String> = flow {
+    suspend fun sendMessageStream(userMessage: String): Flow<LlmEvent> {
         val existingMessages = chatDao.getAllMessagesForContext()
         val isNewChat = existingMessages.isEmpty()
 
@@ -108,83 +121,308 @@ class LlmRepository @Inject constructor(
 
         // Estimate tokens from all messages
         val currentMessages = chatDao.getAllMessagesForContext()
-        if (!TokenUtils.fitsChatBudget(currentMessages.map { it.message }, userMessage)) {
-            throw Exception("Chat memory is full. Please clear the chat to continue.")
-        }
+        requireFitsChatBudget(currentMessages, userMessage)
 
-        // Save user message
+        // Check if model is downloading
+        requireModelNotDownloading()
+
+        // Save user message first (UX: appears instantly)
         val userChatMessage = ChatMessage(
             message = userMessage,
             isUser = true
         )
-        Log.d(TAG, "Saving user message (${userMessage.length} chars)")
+        Log.d(TAG, "Saving user message: ${userMessage.take(50)}...")
         chatDao.insertMessage(userChatMessage)
 
-        // Check if model is downloading
-        val currentModelState = modelRepository.modelState.first()
-        if (currentModelState == ModelState.DOWNLOADING) {
-            throw Exception("Model is currently downloading. Please wait for download to complete.")
+        // Ensure engine is initialized and conversation is active.
+        // Pass excludeMessageId so the message being sent isn't replayed as history.
+        // A failure here must not leave the user row without an answer (history alternation).
+        val events = try {
+            ensureConversation(userChatMessage.id)
+            llmService.sendMessageEvents(userMessage)
+        } catch (t: Throwable) {
+            chatDao.deleteById(userChatMessage.id)
+            throw t
         }
-
-        // Ensure engine is initialized and conversation is active
-        ensureConversation(pending = userChatMessage)
 
         Log.d(TAG, "=== SENDING TO LLM ===")
         Log.d(TAG, "Total messages in context: ${currentMessages.size}")
 
-        // Stream response — LiteRT-LM conversation manages history internally.
-        // Tool calls are handed to us (never auto-run, #170): a lookup is
-        // answered from the DB, a proposed transaction becomes a confirm card.
-        val responseBuilder = StringBuilder()
-        val toolCalls = mutableListOf<LlmEvent.ToolCall>()
+        return respond(userMessage, events, "text", userChatMessage.id)
+    }
 
-        llmService.sendMessageEvents(userMessage)
-            .collect { event ->
+    /**
+     * Send a message with an image for vision tasks (receipt OCR → addTransaction).
+     * Only works when the active model is Gemma 3n E2B (vision capable).
+     */
+    suspend fun sendMessageWithImage(imageUri: android.net.Uri): Flow<LlmEvent> = sendMedia(
+        uri = imageUri,
+        prefix = "image",
+        defaultExtension = "jpg",
+        markerRes = R.string.chat_user_photo_message,
+        unsupported = ChatError.VisionRequiresGemma3n(),
+        label = "image"
+    ) { file -> llmService.sendMessageWithImage(IMAGE_PROMPT, file) }
+
+    /**
+     * Envía un mensaje con audio para transcripción (nota de voz → addTransaction).
+     * Solo funciona con Gemma 3n E2B (multimodal nativo audio + visión).
+     * Whisper Base es ASR-only y no es modelo de chat (W3).
+     */
+    suspend fun sendMessageWithAudio(audioUri: android.net.Uri): Flow<LlmEvent> = sendMedia(
+        uri = audioUri,
+        prefix = "audio",
+        defaultExtension = "wav",
+        markerRes = R.string.chat_user_voice_message,
+        unsupported = ChatError.AudioRequiresGemma3n(),
+        label = "audio"
+    ) { file -> llmService.sendMessageWithAudio(AUDIO_PROMPT, file) }
+
+    /**
+     * Shared path for photo and voice input. The user gets a localized marker row (no
+     * media is stored, so the schema stays untouched), the media is copied to app
+     * storage, and the temporary copy is deleted only once the stream has been
+     * consumed: deleting it earlier removes the file before the engine opens it.
+     */
+    private suspend fun sendMedia(
+        uri: android.net.Uri,
+        prefix: String,
+        defaultExtension: String,
+        @androidx.annotation.StringRes markerRes: Int,
+        unsupported: ChatError,
+        label: String,
+        send: (android.net.Uri) -> Flow<LlmEvent>
+    ): Flow<LlmEvent> {
+        modelRepository.refreshActiveModel()
+        if (!ChatModels.isMultimodal(modelRepository.activeSpec())) throw unsupported
+        requireModelNotDownloading()
+        requireFitsChatBudget(chatDao.getAllMessagesForContext(), "")
+
+        val userChatMessage = ChatMessage(message = context.getString(markerRes), isUser = true)
+        chatDao.insertMessage(userChatMessage)
+
+        // LiteRT-LM opens media by file path, so content:// URIs (gallery picker,
+        // camera FileProvider) must be copied into app storage first.
+        val media = try {
+            materializeMedia(uri, prefix, defaultExtension)
+        } catch (t: Throwable) {
+            chatDao.deleteById(userChatMessage.id)
+            throw t
+        }
+
+        return flow {
+            try {
+                // The marker row is excluded from the replay: it is the message being sent.
+                ensureConversation(userChatMessage.id)
+                Log.d(TAG, "=== SENDING TO LLM ($label) ===")
+                emitAll(respond("", send(android.net.Uri.fromFile(media.file)), label, userChatMessage.id))
+            } catch (t: Throwable) {
+                // respond() cleans up after a failed stream; this covers a failure before it.
+                if (chatDao.getAllMessagesForContext().lastOrNull()?.id == userChatMessage.id) {
+                    chatDao.deleteById(userChatMessage.id)
+                }
+                throw t
+            } finally {
+                media.deleteIfTemporary()
+            }
+        }
+    }
+
+    /**
+     * Common handler for all streaming responses: emits text/thinking events,
+     * collects tool calls, processes them, saves the final assistant message.
+     * Tool calls are resolved internally and NOT emitted downstream.
+     *
+     * On failure or cancellation the partial reply is kept (or, with none, the
+     * unanswered user row is removed) and the engine conversation is closed so the
+     * next send rebuilds it from Room: history keeps alternating user/assistant.
+     */
+    private fun respond(
+        heuristicsText: String,
+        upstream: Flow<LlmEvent>,
+        logLabel: String,
+        userRowId: String? = null
+    ): Flow<LlmEvent> = flow {
+        generating = true
+        val responseBuilder = StringBuilder()
+        try {
+            val toolCalls = mutableListOf<LlmEvent.ToolCall>()
+            val thinkingBuffer = StringBuilder()
+
+            upstream.collect { event ->
                 when (event) {
-                    is LlmEvent.Text -> { responseBuilder.append(event.delta); emit(event.delta) }
+                    is LlmEvent.Text -> { responseBuilder.append(event.delta); emit(event) }
+                    is LlmEvent.Thinking -> { thinkingBuffer.append(event.delta); emit(event) }
                     is LlmEvent.ToolCall -> toolCalls.add(event)
                 }
             }
+            // Process tool calls and build final response
+            // For media (image/audio), heuristicsText is empty — we don't want the prompt as sourceText
+            val finalResponse = handleResponseAndEmit(responseBuilder, toolCalls, thinkingBuffer, heuristicsText)
+            // Save the complete AI response
+            chatDao.insertMessage(ChatMessage(message = finalResponse, isUser = false))
+            Log.d(TAG, "AI response saved ($logLabel)")
+        } catch (t: Throwable) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                if (responseBuilder.isNotBlank()) {
+                    chatDao.insertMessage(ChatMessage(message = responseBuilder.toString(), isUser = false))
+                } else {
+                    userRowId?.let { chatDao.deleteById(it) }
+                }
+                llmService.closeConversation()
+            }
+            throw t
+        } finally {
+            generating = false
+        }
+    }
+
+    /**
+     * Processes tool calls and returns the final response string.
+     * This is a regular function (not a flow builder) so it can call suspend functions.
+     * The caller is responsible for emitting the text chunks.
+     */
+    private suspend fun handleResponseAndEmit(
+        responseBuilder: StringBuilder,
+        toolCalls: MutableList<LlmEvent.ToolCall>,
+        thinkingBuffer: StringBuilder,
+        userMessage: String
+    ): String {
+        // Log thinking tokens if present (developer mode)
+        if (thinkingBuffer.isNotEmpty()) {
+            Log.d(TAG, "Thinking tokens captured: ${thinkingBuffer.length} chars")
+        }
+        // Modelos edge a veces narran el nombre del tool como texto plano en vez de
+        // emitir el tool call estructurado (patrón LiteRT-LM #2202, observado con
+        // gemma-4-E2B: la respuesta quedó como "monthSummary" crudo). Detectar esa
+        // narración y sintetizar el call que el modelo quiso hacer.
+        if (toolCalls.isEmpty()) {
+            NARRATED_TOOL.matchEntire(responseBuilder.toString().trim())?.let { m ->
+                val name = m.groupValues[1]
+                val known = listOf(
+                    PennyWiseTools.ADD_TRANSACTION, PennyWiseTools.DELETE_TRANSACTION,
+                    PennyWiseTools.UPDATE_TRANSACTION, PennyWiseTools.MONTH_SUMMARY,
+                    PennyWiseTools.SPENDING_BY_CATEGORY, PennyWiseTools.BUDGET_STATUS,
+                    PennyWiseTools.CATEGORY_BREAKDOWN, PennyWiseTools.RECENT_TRANSACTIONS,
+                    PennyWiseTools.ACCOUNT_BALANCE, PennyWiseTools.SPENDING_FORECAST
+                )
+                val snake = known.firstOrNull { it.equals(name, ignoreCase = true) || it.equals(name.replace(Regex("([A-Z])")) { "_" + it.value.lowercase() }, ignoreCase = true) }
+                if (snake != null) {
+                    Log.w(TAG, "Model narrated tool '$name' as text — synthesizing $snake call")
+                    responseBuilder.clear()
+                    toolCalls.add(LlmEvent.ToolCall(snake, emptyMap()))
+                }
+            }
+        }
         for (call in toolCalls) {
             val line = handleToolCall(call, userMessage) ?: continue
-            if (responseBuilder.isNotEmpty()) { responseBuilder.append("\n"); emit("\n") }
-            responseBuilder.append(line); emit(line)
+            if (responseBuilder.isNotEmpty()) { responseBuilder.append("\n") }
+            responseBuilder.append(line)
         }
         // A small model sometimes narrates a change instead of calling the tool.
         // Nothing happened — say so, or the user walks away believing it did.
         if (toolCalls.isEmpty() && CLAIMS_A_CHANGE.containsMatchIn(responseBuilder)) {
             val note = "\n(Nothing was changed — I can only add, update or delete through a confirmation card. Try: \"change the tea to Groceries\" or \"delete the tea from today\".)"
-            responseBuilder.append(note); emit(note)
+            responseBuilder.append(note)
         }
 
         // Save the complete AI response
         val finalResponse = responseBuilder.toString()
-        Log.d(TAG, "Saving AI response (${finalResponse.length} chars)")
-        val aiMessage = ChatMessage(
-            message = finalResponse,
-            isUser = false
-        )
-        chatDao.insertMessage(aiMessage)
-        Log.d(TAG, "AI response saved")
+        Log.d(TAG, "Saving AI response: ${finalResponse.take(50)}...")
+        return finalResponse
     }
 
-    /** [pending] is the message about to be sent: saved already, so kept out of the replayed history. */
-    private suspend fun ensureConversation(pending: ChatMessage) {
+    /** Fails fast while the model file is still being downloaded. */
+    private suspend fun requireModelNotDownloading() {
+        if (modelRepository.modelState.first() == ModelState.DOWNLOADING) {
+            throw ChatError.ModelDownloading()
+        }
+    }
+
+    /** Fails when [userMessage] on top of the stored history exceeds the active model's chat budget. */
+    private fun requireFitsChatBudget(history: List<ChatMessage>, userMessage: String) {
+        if (!TokenUtils.fitsChatBudget(history.map { it.message }, userMessage, modelRepository.activeSpec())) {
+            throw ChatError.MemoryFull()
+        }
+    }
+
+    /** A media file LiteRT-LM can open by path; temporary copies are ours to delete. */
+    internal class MediaFile(val file: java.io.File, internal val isTemporary: Boolean) {
+        fun deleteIfTemporary() {
+            if (isTemporary) file.delete()
+        }
+    }
+
+    /**
+     * LiteRT-LM reads media with open(path), which fails for content:// URIs
+     * (e.g. the photo picker's "/picker_get_content/..." path is not a real file).
+     * File URIs are used as-is; anything else is copied into app-private storage.
+     * If the URI comes from our FileProvider (camera_temp/ or voice_notes/), the
+     * original temp file is deleted after successful copy.
+     */
+    internal suspend fun materializeMedia(uri: android.net.Uri, prefix: String, defaultExtension: String): MediaFile {
+        if (uri.scheme == null || uri.scheme == android.content.ContentResolver.SCHEME_FILE) {
+            val path = uri.path ?: throw ChatError.MediaUnreadable(Exception("Invalid media URI."))
+            return MediaFile(java.io.File(path), isTemporary = false)
+        }
+        val extension = context.contentResolver.getType(uri)
+            ?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
+            ?: defaultExtension
+        val directory = java.io.File(context.filesDir, "chat_media").apply { mkdirs() }
+        val target = java.io.File(directory, "$prefix-${UUID.randomUUID()}.$extension")
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val input = context.contentResolver.openInputStream(uri)
+                    ?: throw java.io.IOException("Could not open the selected file.")
+                input.use { source -> target.outputStream().use { sink -> source.copyTo(sink) } }
+            }
+        } catch (e: Exception) {
+            target.delete()
+            Log.e(TAG, "Failed to copy media from $uri", e)
+            throw ChatError.MediaUnreadable(e)
+        }
+        // If URI is from our FileProvider (camera_temp or voice_notes), delete the original temp file
+        if (uri.authority == "${context.packageName}.fileprovider") {
+            val pathSegments = uri.pathSegments
+            if (pathSegments.size >= 2 && (pathSegments[0] == "camera_temp" || pathSegments[0] == "voice_notes")) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    context.contentResolver.delete(uri, null, null)
+                }
+            }
+        }
+        return MediaFile(target, isTemporary = true)
+    }
+
+    private suspend fun ensureConversation(excludeMessageId: String? = null) {
+        // La selección puede haber cambiado desde la última carga: resolverla
+        // aquí garantiza que el engine sirva el modelo activo.
+        modelRepository.refreshActiveModel()
+        val modelFile = modelRepository.getModelFile()
+
         // Initialize engine if needed
-        if (!llmService.isInitialized()) {
-            val modelFile = modelRepository.getModelFile()
+        if (!llmService.isInitialized() || llmService.initializedModelPath() != modelFile.absolutePath) {
+            if (llmService.isInitialized()) {
+                // El engine vivo corre el modelo viejo: se descarta antes de cargar
+                // el nuevo (los 2.4 GB de gemma no caben junto a los 1.5 GB de qwen).
+                llmService.reset()
+            }
             if (!modelFile.exists()) {
-                throw Exception("Model not downloaded. Please download from Settings.")
+                throw ChatError.ModelNotDownloaded()
             }
 
             // Integrity gate: never load a model whose bytes don't match the
             // pinned hash (guards against an in-place-swapped or corrupted file).
             if (!modelRepository.verifyModelIntegrity()) {
                 modelRepository.deleteModel()
-                throw Exception("AI model failed its integrity check and was removed. Please re-download it from Settings.")
+                throw ChatError.ModelIntegrityFailed()
             }
 
-            val initResult = llmService.initialize(modelFile.absolutePath)
+            // Gemma 3n is the only bundle with vision/audio executors; they must be
+            // declared at engine init or every image/voice message is rejected.
+            val initResult = llmService.initialize(
+                modelFile.absolutePath,
+                multimodal = ChatModels.isMultimodal(modelRepository.activeSpec())
+            )
             if (initResult.isFailure) {
                 throw initResult.exceptionOrNull() ?: Exception("Failed to initialize LLM")
             }
@@ -192,6 +430,9 @@ class LlmRepository @Inject constructor(
 
         // Create conversation if needed, replaying history from Room DB
         if (!llmService.hasActiveConversation()) {
+            // W10: close any deferred conversation before creating new one
+            llmService.closeConversation()
+
             val allMessages = chatDao.getAllMessagesForContext()
 
             // Extract system prompt
@@ -202,17 +443,35 @@ class LlmRepository @Inject constructor(
                     buildSystemPrompt(chatContext)
                 }
 
-            // Build history (excluding system prompt, and the message being sent —
-            // replaying it too would put it in front of the model twice)
+            // Build history (excluding system prompt and the message being sent)
             val history = allMessages
-                .filter { !it.isSystemPrompt && it.id != pending.id }
+                .filter { !it.isSystemPrompt && (excludeMessageId == null || it.id != excludeMessageId) }
                 .map { it.message to it.isUser }
 
-            val result = llmService.createConversation(systemPrompt, history, withTools = true)
+            // Thinking config: solo en developer mode con modelo que lo soporte (Gemma 4 E2B)
+            val activeSpec = modelRepository.activeSpec()
+            val thinkingConfig = if (activeSpec.id == ChatModels.GEMMA_4_E2B.id) {
+                val prefs = userPreferencesRepository
+                // Solo habilitar thinking si developer mode está on Y thinking está habilitado en prefs
+                if (prefs.isDeveloperModeEnabled.first() && prefs.isThinkingEnabled.first()) {
+                    ThinkingConfig(
+                        enabled = true,
+                        budgetTokens = prefs.thinkingBudgetTokens.first(),
+                        showRaw = prefs.thinkingShowRaw.first()
+                    ).takeIf { it.validate(activeSpec.contextTokens) }
+                        ?: run {
+                            Log.w(TAG, "Thinking budget exceeds half of the ${activeSpec.contextTokens}-token context — thinking disabled")
+                            null
+                        }
+                } else null
+            } else null
+
+            val result = llmService.createConversation(systemPrompt, history, withTools = true, thinkingConfig = thinkingConfig)
             if (result.isFailure) {
                 throw result.exceptionOrNull() ?: Exception("Failed to create conversation")
             }
-            Log.d(TAG, "Conversation created with ${history.size} history messages")
+            Log.d(TAG, "Conversation created with ${history.size} history messages" +
+                (thinkingConfig?.let { " + thinking (budget=${it.budgetTokens})" } ?: ""))
         }
     }
 
@@ -267,7 +526,7 @@ class LlmRepository @Inject constructor(
             } else {
                 _pendingAction.value = PendingChatAction.Add(draft)
                 val currency = userPreferencesRepository.baseCurrency.first()
-                "Here's what I'll add — confirm below:\n${CurrencyFormatter.formatCurrency(draft.amount, currency, maskIfHidden = false)} " +
+                "Here's what I'll add — confirm below:\n${CurrencyFormatter.formatCurrency(draft.amount, currency)} " +
                     "${if (draft.type == TransactionType.INCOME) "from" else "at"} ${draft.merchant} · ${draft.category} · ${draft.accountLabel}"
             }
         }
@@ -299,15 +558,72 @@ class LlmRepository @Inject constructor(
         PennyWiseTools.MONTH_SUMMARY -> {
             val m = aiContextRepository.getChatContext().monthSummary
             val currency = userPreferencesRepository.baseCurrency.first()
-            "This month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency, maskIfHidden = false)} spent, " +
-                "${CurrencyFormatter.formatCurrency(m.totalIncome, currency, maskIfHidden = false)} received, ${m.transactionCount} transactions."
+            "This month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency)} spent, " +
+                "${CurrencyFormatter.formatCurrency(m.totalIncome, currency)} received, ${m.transactionCount} transactions."
         }
         PennyWiseTools.SPENDING_BY_CATEGORY -> {
             val category = (call.arguments["category"] as? String)?.trim().orEmpty()
             val currency = userPreferencesRepository.baseCurrency.first()
             val spend = aiContextRepository.getCategorySpending(category)
             if (spend == null) "Nothing spent on $category this month."
-            else "${CurrencyFormatter.formatCurrency(spend.amount, currency, maskIfHidden = false)} on ${spend.category} this month across ${spend.transactionCount} transactions."
+            else "${CurrencyFormatter.formatCurrency(spend.amount, currency)} on ${spend.category} this month across ${spend.transactionCount} transactions."
+        }
+        PennyWiseTools.BUDGET_STATUS -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val budgets = budgetRepository.getActiveBudgets().first()
+            if (budgets.isEmpty()) return@handleToolCallInner "No active budgets right now."
+            // Recolectar spendings ANTES del joinToString: first() es suspend y el lambda no lo es
+            val lines = budgets.map { b ->
+                val spend = budgetRepository.getBudgetSpending(b).first()
+                "${b.name}: ${CurrencyFormatter.formatCurrency(spend.totalSpent, currency)} of " +
+                    "${CurrencyFormatter.formatCurrency(b.limitAmount, currency)} used " +
+                    "(${spend.percentageUsed.toInt()}%), ${CurrencyFormatter.formatCurrency(spend.remaining, currency)} left " +
+                    "(${budgetRepository.getDaysRemaining(b)} days left)."
+            }
+            lines.joinToString("\n")
+        }
+        PennyWiseTools.CATEGORY_BREAKDOWN -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val limit = (call.arguments["limit"] as? Number)?.toInt()?.coerceIn(1, 10) ?: 5
+            val ctx = aiContextRepository.getChatContext()
+            val top = ctx.topCategories.take(limit)
+            if (top.isEmpty()) return@handleToolCallInner "No spending recorded this month yet."
+            top.joinToString("\n") { c ->
+                "${c.category}: ${CurrencyFormatter.formatCurrency(c.amount, currency)} (${c.percentage.toInt()}%, ${c.transactionCount} txns)"
+            }
+        }
+        PennyWiseTools.RECENT_TRANSACTIONS -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val limit = (call.arguments["limit"] as? Number)?.toInt()?.coerceIn(1, 20) ?: 5
+            val daysBack = (call.arguments.arg("daysBack") as? Number)?.toInt()?.coerceIn(1, 30) ?: 7
+            val ctx = aiContextRepository.getChatContext()
+            val cutoff = java.time.LocalDate.now().minusDays(daysBack.toLong())
+            val recent = ctx.recentTransactions.filter { it.dateTime.toLocalDate() >= cutoff }.take(limit)
+            if (recent.isEmpty()) return@handleToolCallInner "No transactions in the last $daysBack days."
+            recent.joinToString("\n") { t ->
+                val when_ = if (t.daysAgo == 0) "today" else if (t.daysAgo == 1) "yesterday" else "${t.daysAgo} days ago"
+                "${CurrencyFormatter.formatCurrency(t.amount, currency)} at ${t.merchantName} · ${t.category} · $when_"
+            }
+        }
+        PennyWiseTools.ACCOUNT_BALANCE -> {
+            val ignored = ignoredAccountsStore.keys()
+            val accounts = accountBalanceRepository.getAllLatestBalancesOnce()
+                .filter { IgnoredAccountsStore.keyFor(it.bankName, it.accountLast4) !in ignored }
+            if (accounts.isEmpty()) return@handleToolCallInner "No accounts on record yet."
+            accounts.joinToString("\n") { a ->
+                val label = a.alias ?: "${a.bankName} ${a.accountLast4}"
+                "${CurrencyFormatter.formatCurrency(a.balance, a.currency)} — $label"
+            }
+        }
+        PennyWiseTools.SPENDING_FORECAST -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val m = aiContextRepository.getChatContext().monthSummary
+            val forecast = if (m.currentDay > 0) {
+                m.totalExpense.multiply(java.math.BigDecimal(m.daysInMonth))
+                    .divide(java.math.BigDecimal(m.currentDay), 2, java.math.RoundingMode.HALF_UP)
+            } else m.totalExpense
+            "Spent so far this month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency)} over ${m.currentDay} of ${m.daysInMonth} days. " +
+                "At this pace, the month will end around ${CurrencyFormatter.formatCurrency(forecast, currency)}."
         }
         else -> null
     }
@@ -323,7 +639,7 @@ class LlmRepository @Inject constructor(
 
     /** An existing row is shown in ITS currency, never relabelled with the base one. */
     private fun describe(tx: TransactionEntity): String =
-        "${CurrencyFormatter.formatCurrency(tx.amount, tx.currency, maskIfHidden = false)} ${if (tx.transactionType == TransactionType.INCOME) "from" else "at"} ${tx.merchantName} · ${tx.category} · " +
+        "${CurrencyFormatter.formatCurrency(tx.amount, tx.currency)} ${if (tx.transactionType == TransactionType.INCOME) "from" else "at"} ${tx.merchantName} · ${tx.category} · " +
             tx.dateTime.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
 
     /**
@@ -340,25 +656,49 @@ class LlmRepository @Inject constructor(
         val accounts = accountBalanceRepository.getAllLatestBalancesOnce()
             .filter { IgnoredAccountsStore.keyFor(it.bankName, it.accountLast4) !in ignored }
             .map { it.alias ?: "${it.bankName} ${it.accountLast4}" }
+        val activeSpec = modelRepository.activeSpec()
+        val supportsMedia = ChatModels.isMultimodal(activeSpec)
+        val customInstructions = userPreferencesRepository.customInstructions.first()
+        val systemPromptAdditions = userPreferencesRepository.systemPromptAdditions.first()
+        // Get device locale for response language
+        val locale = this.context.resources.configuration.locales.get(0)
+        val languageTag = locale.toLanguageTag() // e.g. "es-MX", "en-US"
+        
         return composeSystemPrompt(
             currentDate = context.currentDate.toString(),
-            monthLine = "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency, maskIfHidden = false)} spent, " +
-                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency, maskIfHidden = false)} income, ${monthSummary.transactionCount} transactions",
+            monthLine = "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} spent, " +
+                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency)} income, ${monthSummary.transactionCount} transactions",
             expenseCategories = categories.filter { !it.isIncome }.map { it.name },
             incomeCategories = categories.filter { it.isIncome }.map { it.name },
-            accounts = accounts
+            accounts = accounts,
+            supportsVision = supportsMedia,
+            supportsAudio = supportsMedia,
+            customInstructions = customInstructions,
+            systemPromptAdditions = systemPromptAdditions,
+            responseLanguage = languageTag
         )
     }
 
     suspend fun updateSystemPrompt() {
         val chatContext = aiContextRepository.getChatContext()
         val newPrompt = buildSystemPrompt(chatContext)
+        // Actualizar la fila isSystemPrompt=1 en Room ANTES de cerrar la conversación
+        // para que al recrearse use el prompt nuevo (W2)
+        chatDao.updateSystemPromptMessage(newPrompt)
         userPreferencesRepository.updateSystemPrompt(newPrompt)
-        // Close conversation so it gets recreated with updated prompt
-        llmService.closeConversation()
+        // W10: defer closeConversation if a generation is in progress
+        if (generating) {
+            Log.d(TAG, "Deferring closeConversation until generation completes")
+        } else {
+            // Close conversation so it gets recreated with updated prompt
+            llmService.closeConversation()
+        }
         Log.d(TAG, "System prompt updated with latest financial data")
     }
 
+    // DEAD CODE (2026-11-04): Replaced by ChatEmptyState in ChatScreen which shows
+    // localized example prompts. Kept for reference if a welcome message is needed again.
+    /*
     suspend fun getFormattedContextForDisplay(): String {
         val chatContext = aiContextRepository.getChatContext()
         val monthSummary = chatContext.monthSummary
@@ -369,10 +709,11 @@ class LlmRepository @Inject constructor(
 
         Tell me what you spent and I'll add it after you confirm — e.g. "coffee 120 at Starbucks" or "got 50000 salary". Ask "how much on groceries this month?" for a total.
 
-        This month so far: ${monthSummary.transactionCount} transactions, ${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency, maskIfHidden = false)} spent.
+        This month so far: ${monthSummary.transactionCount} transactions, ${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} spent.
         Nothing is saved without your tap.
         """.trimIndent()
     }
+    */
 
     companion object {
         /**
@@ -386,19 +727,44 @@ class LlmRepository @Inject constructor(
             monthLine: String,
             expenseCategories: List<String>,
             incomeCategories: List<String>,
-            accounts: List<String>
+            accounts: List<String>,
+            supportsVision: Boolean = false,
+            supportsAudio: Boolean = false,
+            customInstructions: String = "",
+            systemPromptAdditions: String = "",
+            responseLanguage: String = "en-US"
         ): String = """
             You are PennyWise AI, a friendly assistant inside an expense tracker. Today is $currentDate.
             This month so far: $monthLine.
 
             When the user tells you about money they spent, paid, bought or received, call addTransaction. Use EXPENSE unless they clearly received money.
             When the user asks how much they spent on something, call spendingByCategory; for this month's overall totals call monthSummary (the figures below are only a snapshot from when this chat started).
+            When the user asks about budgets, call budgetStatus; for a per-category breakdown call categoryBreakdown; for recent activity call recentTransactions; for account balances call accountBalance; to predict the month's total call spendingForecast.
             If the user refers to something already recorded — "the tea from today", "that uber", "change", "should be", "was actually", "delete", "remove" — call updateTransaction or deleteTransaction with the words they used to identify it. Never call addTransaction for those.
+            ${if (supportsVision) """
+            If the user attaches an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. Emit ONLY the addTransaction tool call with those fields.
+            """ else ""}
+            ${if (supportsAudio) """
+            If the user sends a voice note, transcribe it, extract transaction fields (merchant, amount, date, category). Omit currency if not mentioned. Emit ONLY the addTransaction tool call with those fields.
+            """ else ""}
             Otherwise answer briefly and helpfully. Never invent transactions or figures, and never say you added, changed or deleted anything yourself — only the tools do that, and the user confirms each one.
+
+            If you suggest a follow-up question, make it specific, actionable, and professional (e.g., "Would you like me to break down spending by category?" not "¿Cuánto en comida?"). Keep suggestions relevant to the user's financial context.
 
             Expense categories: ${promptList(expenseCategories, MAX_EXPENSE_CATEGORY_CHARS)}
             Income categories: ${promptList(incomeCategories, MAX_INCOME_CATEGORY_CHARS)}
             Accounts: ${promptList(accounts, MAX_ACCOUNT_CHARS).ifEmpty { "none yet" }}
+
+            ${if (customInstructions.isNotBlank()) """
+            --- Additional user instructions ---
+            $customInstructions
+            """ else ""}
+            ${if (systemPromptAdditions.isNotBlank()) """
+            --- System prompt additions (semantic) ---
+            $systemPromptAdditions
+            """ else ""}
+
+            Respond in the user's language: $responseLanguage (e.g., es-MX → Spanish, en-US → English). Match the language the user writes in. If unsure, default to $responseLanguage.
 
             Plain text only: no markdown, asterisks or backticks.
             """.trimIndent()
@@ -415,7 +781,21 @@ class LlmRepository @Inject constructor(
         private const val MAX_EXPENSE_CATEGORY_CHARS = 1200
         private const val MAX_INCOME_CATEGORY_CHARS = 400
         private const val MAX_ACCOUNT_CHARS = 500
-        private val CLAIMS_A_CHANGE = Regex("\\b(I(?:'ve| have)?|has been|have been|is now|was) (added|updated|changed|deleted|removed|recorded)\\b", RegexOption.IGNORE_CASE)
+        private val CLAIMS_A_CHANGE = Regex(
+        "\\b(I(?:'ve| have)?|has been|have been|is now|was|it'?s been|it was) (added|updated|changed|deleted|removed|recorded|he (agregado|añadido|registrado|eliminado|actualizado|borrado)|se (ha )?(agreg|añadi|registr|elimin|actualiz)[óo])\\b",
+        RegexOption.IGNORE_CASE
+    )
+        /**
+         * Respuesta que es SOLO el nombre de un tool (camel o snake) — el modelo
+         * narró el call en vez de emitirlo (patrón #2202 con gemma-4-E2B:
+         * "monthSummary" crudo como respuesta completa).
+         */
+        private val NARRATED_TOOL = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
         private const val TAG = "LlmRepository"
+
+        /** Prompt for vision (receipt OCR → addTransaction). In English (system prompt language). */
+        const val IMAGE_PROMPT = "Extract transaction from this receipt. Return merchant, amount, date, category. Omit currency if not visible."
+        /** Prompt for audio (voice note → addTransaction). In English (system prompt language). */
+        const val AUDIO_PROMPT = "Transcribe this voice note and extract the transaction. Return merchant, amount, date, category. Omit currency if not mentioned."
     }
 }

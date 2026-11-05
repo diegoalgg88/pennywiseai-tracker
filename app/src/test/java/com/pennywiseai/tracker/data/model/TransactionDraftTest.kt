@@ -93,4 +93,18 @@ class TransactionDraftTest {
         assertNull(draft(mapOf("amount" to 0, "merchant" to "x"), "x"))
         assertNull(draft(mapOf("merchant" to "x"), "x"))
     }
+
+    @Test
+    fun `amount as string with currency symbol still parses`() {
+        // litertlm f300c4f fixed int args; Double-as-String ("150.00") and
+        // "$150.50" shapes still arrive from some models — F5-T2.
+        val d = draft(mapOf("amount" to "150.00", "merchant" to "Oxxo", "category" to "Groceries", "type" to "EXPENSE", "account" to "cash"), "gasté 150 en el oxxo")!!
+        assertEquals(0, BigDecimal("150.00").compareTo(d.amount))
+        assertEquals("Groceries", d.category)
+
+        val d2 = draft(mapOf("amount" to "$1,250.50 MXN", "merchant" to "CFE", "category" to "", "type" to "EXPENSE", "account" to ""), "pagué 1250.50 de luz")!!
+        assertEquals(0, BigDecimal("1250.50").compareTo(d2.amount))
+
+        assertNull(draft(mapOf("amount" to "abc", "merchant" to "x"), "x"))
+    }
 }

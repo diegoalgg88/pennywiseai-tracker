@@ -33,4 +33,10 @@ interface ChatDao {
     
     @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
     suspend fun getAllMessagesForContext(): List<ChatMessage>
+
+    @Query("DELETE FROM chat_messages WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("UPDATE chat_messages SET message = :message WHERE isSystemPrompt = 1")
+    suspend fun updateSystemPromptMessage(message: String)
 }

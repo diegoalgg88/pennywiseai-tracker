@@ -3,7 +3,7 @@
 Features to make PennyWise a complete budget tracking replacement for spreadsheets.
 
 ## Already Implemented
-- Transaction parsing from SMS (46+ banks)
+- Transaction parsing from SMS (170+ banks, 26 countries)
 - Budget creation with category limits, progress tracking, daily allowance
 - Subscription detection and tracking
 - AI chat for querying expenses
@@ -12,6 +12,13 @@ Features to make PennyWise a complete budget tracking replacement for spreadshee
 - Split transactions
 - Custom categorization rules
 - What's New post-update dialog
+- **System Prompt Additions (F8-T1)** — semantic blocks appended to system prompt, stored in DataStore, editable in Settings → Experimental (~200 tokens budget)
+- **Custom HuggingFace Model (F8-T2)** — Experimental section with pre-download validation (HEAD request + SHA-256 pinning), state machine (IDLE→VALIDATED→READY), RAM gate integration, fallback to built-in Qwen
+- **On-device AI Multimodal (Gemma 3n E2B)** — Vision (receipt photo → transaction), Audio (voice note → transcription → transaction)
+- **Thinking Mode (Gemma 4 E2B, developer mode)** — Native chain-of-thought reasoning with configurable budget tokens
+- **Expanded Tools (F4-T1..T4)** — `budget_status`, `category_breakdown`, `recent_transactions`, `account_balance`, `spending_forecast`
+- **Mexico Bank Parsers** — BBVA México, AMEX México (with shared AMEX sender routing via Spanish content-gate)
+- **Model Lifecycle** — SHA-256 streaming verification on every load, RAM gate, dynamic token budget per model
 
 ---
 

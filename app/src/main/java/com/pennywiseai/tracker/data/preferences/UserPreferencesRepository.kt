@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -77,6 +78,12 @@ open class UserPreferencesRepository @Inject constructor(
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val HAS_SHOWN_SCAN_TUTORIAL = booleanPreferencesKey("has_shown_scan_tutorial")
         val ACTIVE_DOWNLOAD_ID = longPreferencesKey("active_download_id")
+        // Id del modelo de chat seleccionado (ChatModels). Ausente → ChatModels.DEFAULT.
+        val SELECTED_CHAT_MODEL = stringPreferencesKey("selected_chat_model")
+        // Thinking (developer mode) — budget tokens for chain-of-thought + show raw tokens
+        val THINKING_ENABLED = booleanPreferencesKey("thinking_enabled")
+        val THINKING_BUDGET_TOKENS = intPreferencesKey("thinking_budget_tokens")
+        val THINKING_SHOW_RAW = booleanPreferencesKey("thinking_show_raw")
         val SMS_SCAN_MONTHS = intPreferencesKey("sms_scan_months")
         val SMS_SCAN_ALL_TIME = booleanPreferencesKey("sms_scan_all_time")
         val SMS_SCAN_USE_CUSTOM_DATE = booleanPreferencesKey("sms_scan_use_custom_date")
@@ -212,6 +219,15 @@ open class UserPreferencesRepository @Inject constructor(
         val SCHEDULED_FOLDER_BACKUP_TREE_URI = stringPreferencesKey("scheduled_folder_backup_tree_uri")
         val SCHEDULED_FOLDER_BACKUP_LAST_TIMESTAMP = longPreferencesKey("scheduled_folder_backup_last_timestamp")
 
+        // Custom instructions for the AI chat (F7-T1). Empty string = disabled.
+        val CUSTOM_INSTRUCTIONS = stringPreferencesKey("custom_instructions")
+
+        // System prompt additions (F8-T1). Semantic instructions appended to system prompt.
+        val SYSTEM_PROMPT_ADDITIONS = stringPreferencesKey("system_prompt_additions")
+
+        // Custom model from HuggingFace (F7-T2). JSON string of CustomModelConfig.
+        val CUSTOM_MODEL_CONFIG = stringPreferencesKey("custom_model_config")
+
         // Embed receipt photos in backups (#839). Manual export defaults ON;
         // the daily folder backup defaults OFF (photos make every copy large).
         val EXPORT_INCLUDE_RECEIPTS = booleanPreferencesKey("export_include_receipts")
@@ -283,6 +299,24 @@ open class UserPreferencesRepository @Inject constructor(
     val isDeveloperModeEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.DEVELOPER_MODE_ENABLED] ?: false
+        }
+
+    /** Thinking mode enabled (developer mode only). Default false. */
+    val isThinkingEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.THINKING_ENABLED] ?: false
+        }
+
+    /** Budget tokens for chain-of-thought (developer mode). Default 1024. */
+    val thinkingBudgetTokens: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.THINKING_BUDGET_TOKENS] ?: 1024
+        }
+
+    /** Whether to show raw thinking tokens in chat (developer mode debug). Default false. */
+    val thinkingShowRaw: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.THINKING_SHOW_RAW] ?: false
         }
 
     /**
@@ -367,6 +401,24 @@ open class UserPreferencesRepository @Inject constructor(
         }
     }
 
+    suspend fun setThinkingEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.THINKING_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setThinkingBudgetTokens(tokens: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.THINKING_BUDGET_TOKENS] = tokens.coerceIn(256, 4096)
+        }
+    }
+
+    suspend fun setThinkingShowRaw(showRaw: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.THINKING_SHOW_RAW] = showRaw
+        }
+    }
+
     suspend fun setCountCreditCardAsExpense(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.COUNT_CREDIT_AS_EXPENSE] = enabled
@@ -415,6 +467,16 @@ open class UserPreferencesRepository @Inject constructor(
     suspend fun clearActiveDownloadId() {
         context.dataStore.edit { preferences ->
             preferences.remove(PreferencesKeys.ACTIVE_DOWNLOAD_ID)
+        }
+    }
+
+    /** Id del modelo de chat seleccionado; null → [com.pennywiseai.tracker.core.ChatModels.DEFAULT]. */
+    val selectedChatModel: Flow<String?> = context.dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.SELECTED_CHAT_MODEL] }
+
+    suspend fun setSelectedChatModel(modelId: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SELECTED_CHAT_MODEL] = modelId
         }
     }
     
@@ -1272,6 +1334,54 @@ open class UserPreferencesRepository @Inject constructor(
 
     val folderBackupIncludeReceipts: Flow<Boolean> = context.dataStore.data
         .map { it[PreferencesKeys.FOLDER_BACKUP_INCLUDE_RECEIPTS] ?: false }
+
+    // Custom instructions for AI chat (F7-T1). Default empty = disabled.
+    val customInstructions: Flow<String> = context.dataStore.data
+        .map { it[PreferencesKeys.CUSTOM_INSTRUCTIONS] ?: "" }
+
+    suspend fun setCustomInstructions(instructions: String) {
+        context.dataStore.edit { preferences ->
+            val trimmed = instructions.trim()
+            if (trimmed.isEmpty()) {
+                preferences.remove(PreferencesKeys.CUSTOM_INSTRUCTIONS)
+            } else {
+                preferences[PreferencesKeys.CUSTOM_INSTRUCTIONS] = trimmed
+            }
+        }
+    }
+
+    // System prompt additions (F8-T1). Semantic additions appended to system prompt. Default empty = disabled.
+    val systemPromptAdditions: Flow<String> = context.dataStore.data
+        .map { it[PreferencesKeys.SYSTEM_PROMPT_ADDITIONS] ?: "" }
+
+    suspend fun setSystemPromptAdditions(additions: String) {
+        context.dataStore.edit { preferences ->
+            val trimmed = additions.trim()
+            if (trimmed.isEmpty()) {
+                preferences.remove(PreferencesKeys.SYSTEM_PROMPT_ADDITIONS)
+            } else {
+                preferences[PreferencesKeys.SYSTEM_PROMPT_ADDITIONS] = trimmed
+            }
+        }
+    }
+
+    // Custom model config from HuggingFace (F7-T2). JSON string of CustomModelConfig.
+    val customModelConfig: Flow<String?> = context.dataStore.data
+        .map { it[PreferencesKeys.CUSTOM_MODEL_CONFIG] }
+
+    suspend fun setCustomModelConfig(configJson: String?) {
+        context.dataStore.edit { preferences ->
+            configJson?.trim().let {
+                if (it.isNullOrEmpty()) preferences.remove(PreferencesKeys.CUSTOM_MODEL_CONFIG)
+                else preferences[PreferencesKeys.CUSTOM_MODEL_CONFIG] = it
+            } ?: preferences.remove(PreferencesKeys.CUSTOM_MODEL_CONFIG)
+        }
+    }
+
+    /** Synchronous getter for custom model config (for ModelRepository refresh). */
+    fun getCustomModelConfigSync(): String? = runBlocking {
+        context.dataStore.data.first()[PreferencesKeys.CUSTOM_MODEL_CONFIG]
+    }
 
     suspend fun setExportIncludeReceipts(include: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.EXPORT_INCLUDE_RECEIPTS] = include }

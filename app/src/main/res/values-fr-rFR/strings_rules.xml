@@ -257,9 +257,9 @@
     <string name="chat_memory_almost_full">Mémoire de chat presque pleine! Nettoyez le chat pour continuer.</string>
     <string name="chat_memory_warning">La mémoire du chat est à %1$d%% pleine. Pensez à la vider.</string>
     <string name="chat_memory_usage">La mémoire du chat est remplie à %1$d%%.</string>
-    <plurals name="chat_stats_model_messages">
-        <item quantity="one">Qwen 2.5 1.5B • Message %1$d</item>
-        <item quantity="other">Qwen 2.5 1.5B • Messages %1$d</item>
+        <plurals name="chat_stats_model_messages">
+        <item quantity="one">%2$s • %1$d message</item>
+        <item quantity="other">%2$s • %1$d messages</item>
     </plurals>
     <string name="chat_stats_tokens">Jetons %1$s</string>
     <string name="chat_stats_tokens_of_max">Jetons %1$s / %2$s</string>

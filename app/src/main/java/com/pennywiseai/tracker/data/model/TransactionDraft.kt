@@ -23,12 +23,13 @@ data class TransactionDraft(
         // The model flips EXPENSE→INCOME on plain spends ~1 in 6 times, so the
         // user's own words decide: a spend verb wins ("spent my salary on rent"),
         // then an income word, then the model's type.
+        // Note: \b doesn't work with accented chars (é, í, ó, ú, ñ). Use lookarounds instead.
         private val SPEND_WORDS = Regex(
-            "\\b(spent|spend|paid|pay|bought|buy|purchased|gave|sent|ordered|bill|fee|fees|rent|recharge|donated|subscription)\\b",
+            "(?<![\\p{L}])(spent|spend|paid|pay|bought|buy|purchased|gave|sent|ordered|bill|fee|fees|rent|recharge|donated|subscription|gast[ée]|pagu[ée]|compr[ée]|envi[ée]|renta|recarga|suscripci[oó]n|donaci[oó]n)(?![\\p{L}])",
             RegexOption.IGNORE_CASE
         )
         private val INCOME_WORDS = Regex(
-            "\\b(received|got|salary|refund|refunded|cashback|credited|sold|bonus|interest|income|won|earned|reimburse\\w*)\\b",
+            "(?<![\\p{L}])(received|got|salary|refund|refunded|cashback|credited|sold|bonus|interest|income|won|earned|reimburse\\w*|recib[ií]|cobr[ée]|sueldo|salario|n[oó]mina|reembolso|devoluci[oó]n|dep[oó]sito|ingreso|gan[ée]|bono|intereses|cashback)(?![\\p{L}])",
             RegexOption.IGNORE_CASE
         )
 

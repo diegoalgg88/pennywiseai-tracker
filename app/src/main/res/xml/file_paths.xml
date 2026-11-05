@@ -20,6 +20,11 @@
         name="camera_temp"
         path="camera_temp/" />
 
+    <!-- Cache directory for voice note temp files (chat audio input) -->
+    <cache-path
+        name="voice_notes"
+        path="." />
+
     <!-- Cache directory for rendered share cards -->
     <cache-path
         name="share_cards"

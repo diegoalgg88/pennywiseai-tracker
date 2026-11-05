@@ -59,8 +59,13 @@ fun Application.configureRouting() {
             // Jordan (#955) — the web tester advertises JIB and Safwa samples.
             JordanIslamicBankParser(), IslamicInternationalArabBankParser(),
             BankAlEtihadParser(), SafwaIslamicBankParser(),
-            // Orange Money (Jordan) — the web tester advertises its samples.
-            OrangeMoneyJordanParser()
+            // Orange Money (Jordan) - the web tester advertises its samples.
+            OrangeMoneyJordanParser(),
+            // Mexico (2026-10) - el tester anuncia samples de AMEX Mexico y BBVA
+            // Mexico cosechados de sus suites, asi que el registry de /htmx/parse
+            // debe poder parsearlos tambien.
+            AmexMexicoParser(),
+            BBVAMexicoParser()
         )
     )
 

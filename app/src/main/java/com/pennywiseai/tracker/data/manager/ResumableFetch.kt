@@ -24,15 +24,42 @@ internal class ResumableFetch(
     private val onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
 ) {
     suspend fun into(part: File) {
+        var redirects = 0
+        var currentUrl = url
+        while (true) {
+            try {
+                fetchOnce(part, currentUrl)
+                return
+            } catch (e: HttpRedirect) {
+                // HF (y otros CDNs LFS) sirven el archivo vía redirect 302 → cdn-lfs.
+                // Perseguir redirects cambia de host y de path: un resume de un .part
+                // descargado del redirect previo puede chocar con un redirect distinto,
+                // así que tras MAX_REDIRECTS caídas se reinicia desde cero.
+                if (++redirects > MAX_REDIRECTS) throw IOException("Too many redirects")
+                currentUrl = e.location
+            }
+        }
+    }
+
+    private suspend fun fetchOnce(part: File, url: String) {
         val offset = part.length()
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = timeoutMs
             connection.readTimeout = timeoutMs
+            // Los redirects se manejan manualmente (HttpRedirect) para poder decidir
+            // si un .part existente sigue siendo válido tras un cambio de host.
+            connection.instanceFollowRedirects = false
             if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
             val append = when (val code = connection.responseCode) {
                 HttpURLConnection.HTTP_PARTIAL -> true
                 HttpURLConnection.HTTP_OK -> false // server ignored the range: start over
+                in 300..399 -> {
+                    val location = connection.getHeaderField("Location")
+                        ?: throw IOException("Redirect without Location")
+                    if (offset > 0) part.delete() // el host cambió: re-empezar
+                    throw HttpRedirect(location)
+                }
                 HTTP_RANGE_NOT_SATISFIABLE ->
                     if (offset >= expectedBytes) return
                     else { part.delete(); throw IOException("Range not satisfiable at $offset") }
@@ -73,6 +100,9 @@ internal class ResumableFetch(
         }
     }
 
+    /** Un 3xx con Location; [into] lo persigue. */
+    private class HttpRedirect(val location: String) : IOException("Redirect to $location")
+
     private fun IOException.isDiskFull(): Boolean =
         message?.let { it.contains("ENOSPC") || it.contains("No space left", ignoreCase = true) } == true
 
@@ -80,5 +110,6 @@ internal class ResumableFetch(
         const val BUFFER_BYTES = 256 * 1024
         const val PUBLISH_INTERVAL_MS = 500L
         const val HTTP_RANGE_NOT_SATISFIABLE = 416
+        const val MAX_REDIRECTS = 5
     }
 }

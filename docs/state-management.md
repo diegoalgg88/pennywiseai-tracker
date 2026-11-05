@@ -9,7 +9,7 @@ PennyWise uses the modern Android state management approach with:
 
 The snippets below are trimmed for reading. The real files are
 `data/preferences/UserPreferencesRepository.kt`, `ui/viewmodel/ThemeViewModel.kt`,
-and `PennyWiseApp.kt` — the patterns match, the field lists don't.
+`ui/screens/settings/SettingsViewModel.kt`, and `PennyWiseApp.kt` — the patterns match, the field lists don't.
 
 ## Architecture
 
@@ -18,17 +18,16 @@ and `PennyWiseApp.kt` — the patterns match, the field lists don't.
 // data/preferences/UserPreferencesRepository.kt
 @Singleton
 class UserPreferencesRepository @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context
 ) {
-    // DataStore for persistent storage
     private val dataStore = context.dataStore
-    
+
     // Expose preferences as Flow
     val userPreferences: Flow<UserPreferences> = dataStore.data
-        .map { preferences -> 
+        .map { preferences ->
             // Map to domain model
         }
-    
+
     // Update functions
     suspend fun updateDarkThemeEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
@@ -45,7 +44,7 @@ class UserPreferencesRepository @Inject constructor(
 class ThemeViewModel @Inject constructor(
     private val repository: UserPreferencesRepository
 ) : ViewModel() {
-    
+
     // Convert Flow to StateFlow for UI
     val themeUiState: StateFlow<ThemeUiState> = repository.userPreferences
         .map { preferences ->
@@ -59,7 +58,7 @@ class ThemeViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = ThemeUiState()
         )
-    
+
     // User actions
     fun updateDarkTheme(enabled: Boolean?) {
         viewModelScope.launch {
@@ -73,22 +72,85 @@ The production `ThemeUiState` carries more than theme flags — theme style,
 accent color, AMOLED mode, app font, blur effects. `PennyWiseApp` forwards all
 of it into the `PennyWiseTheme(...)` call.
 
-### 3. UI Layer (Composables)
+### 3. Settings ViewModel — Extended Preferences
+```kotlin
+// ui/screens/settings/SettingsViewModel.kt
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val modelRepository: ModelRepository,
+    // ... other deps
+) : ViewModel() {
+
+    // Developer mode
+    val isDeveloperModeEnabled = userPreferencesRepository.isDeveloperModeEnabled
+
+    // Thinking (developer mode only)
+    val isThinkingEnabled = userPreferencesRepository.isThinkingEnabled
+    val thinkingBudgetTokens = userPreferencesRepository.thinkingBudgetTokens
+    val thinkingShowRaw = userPreferencesRepository.thinkingShowRaw
+
+    // Custom instructions for AI chat (F7-T1)
+    val customInstructions = userPreferencesRepository.customInstructions
+
+    // System prompt additions (F8-T1). Semantic additions appended to system prompt.
+    val systemPromptAdditions = userPreferencesRepository.systemPromptAdditions
+
+    // Custom HF Model config (F8-T2). Experimental section: validate pre-download, pin SHA-256.
+    private val _customModelConfig = MutableStateFlow<CustomModelConfig?>(null)
+    val customModelConfig: StateFlow<CustomModelConfig?> = _customModelConfig.asStateFlow()
+
+    private val _customModelValidationState = MutableStateFlow<CustomModelValidationState>(CustomModelValidationState.IDLE)
+    val customModelValidationState: StateFlow<CustomModelValidationState> = _customModelValidationState.asStateFlow()
+
+    enum class CustomModelValidationState {
+        IDLE, PENDING_VALIDATION, VALIDATED, DOWNLOADING, READY, ERROR
+    }
+
+    // Model selection
+    val supportedModels: Flow<List<ChatModelSpec>> = ...
+    private val _selectedModelId = MutableStateFlow(modelRepository.activeSpec().id)
+    val selectedModelId: StateFlow<String> = _selectedModelId.asStateFlow()
+
+    fun selectModel(modelId: String) { ... }
+
+    // AI settings setters
+    fun setCustomInstructions(instructions: String) { ... }
+    fun setSystemPromptAdditions(additions: String) { ... }
+    fun validateCustomModel(...) { ... }  // HEAD request to HF API
+    fun saveCustomModelConfig() { ... }
+    fun clearCustomModelConfig() { ... }
+}
+```
+
+### 4. UI Layer (Composables)
 ```kotlin
 // SettingsScreen.kt
 @Composable
 fun SettingsScreen(
+    settingsViewModel: SettingsViewModel,
     themeViewModel: ThemeViewModel
 ) {
-    // Collect StateFlow with lifecycle awareness
     val themeUiState by themeViewModel.themeUiState.collectAsStateWithLifecycle()
-    
+    val customInstructions by settingsViewModel.customInstructions.collectAsStateWithLifecycle()
+    val systemPromptAdditions by settingsViewModel.systemPromptAdditions.collectAsStateWithLifecycle()
+    val validationState by settingsViewModel.customModelValidationState.collectAsStateWithLifecycle()
+
     // Use state in UI
-    FilterChip(
-        selected = themeUiState.isDarkTheme == true,
-        onClick = { themeViewModel.updateDarkTheme(true) },
-        label = { Text("Dark") }
+    TextField(
+        value = customInstructions,
+        onValueChange = { settingsViewModel.setCustomInstructions(it) },
+        label = { Text("Custom Instructions") }
     )
+
+    // Custom Model UI with state-based rendering
+    when (validationState) {
+        CustomModelValidationState.IDLE -> { /* show empty form */ }
+        CustomModelValidationState.PENDING_VALIDATION -> { /* spinner */ }
+        CustomModelValidationState.VALIDATED -> { /* show Save button */ }
+        CustomModelValidationState.READY -> { /* show green check */ }
+        CustomModelValidationState.ERROR -> { /* show error */ }
+    }
 }
 ```
 
@@ -131,20 +193,40 @@ fun StatelessCounter(
 fun PennyWiseApp() {
     val themeViewModel: ThemeViewModel = hiltViewModel()
     val themeUiState by themeViewModel.themeUiState.collectAsStateWithLifecycle()
-    
-    // Apply theme based on state
+
     val darkTheme = when (themeUiState.isDarkTheme) {
         null -> isSystemInDarkTheme() // Follow system
         else -> themeUiState.isDarkTheme
     }
-    
+
     PennyWiseTheme(
         darkTheme = darkTheme,
         dynamicColor = themeUiState.isDynamicColorEnabled
     ) {
-        // All screens inherit theme
         NavHost(...)
     }
+}
+```
+
+### 4. Model State Management (ModelRepository)
+```kotlin
+// data/repository/ModelRepository.kt
+@Singleton
+class ModelRepository @Inject constructor(...) {
+    private val _modelState = MutableStateFlow(ModelState.NOT_DOWNLOADED)
+    val modelState: Flow<ModelState> = _modelState.asStateFlow()
+
+    @Volatile
+    private var active: ChatModelSpec = ChatModels.DEFAULT
+
+    // RAM gate
+    fun deviceSupports(spec: ChatModelSpec): Boolean = totalRamBytes >= spec.minRamBytes
+
+    fun supportedModels(): List<ChatModelSpec> = ChatModels.allWithCustom(...).filter { deviceSupports(it) }
+
+    suspend fun refreshActiveModel() { ... } // applies RAM gate, logs fallback
+
+    suspend fun refreshModelState() { ... } // verifies hash on present files
 }
 ```
 

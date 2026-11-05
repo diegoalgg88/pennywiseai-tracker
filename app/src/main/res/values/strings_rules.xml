@@ -259,12 +259,14 @@
     <string name="chat_dismiss">Dismiss</string>
     <string name="chat_input_placeholder">Ask, or tell me what you spent…</string>
     <string name="chat_send">Send</string>
+    <string name="chat_remove">Remove</string>
+    <string name="chat_image_preview">Attached image preview</string>
     <string name="chat_memory_almost_full">Chat memory almost full! Clear chat to continue.</string>
     <string name="chat_memory_warning">Chat memory is %1$d%% full. Consider clearing soon.</string>
     <string name="chat_memory_usage">Chat memory is %1$d%% full.</string>
     <plurals name="chat_stats_model_messages">
-        <item quantity="one">Qwen 2.5 1.5B • %1$d message</item>
-        <item quantity="other">Qwen 2.5 1.5B • %1$d messages</item>
+        <item quantity="one">%2$s • %1$d message</item>
+        <item quantity="other">%2$s • %1$d messages</item>
     </plurals>
     <string name="chat_stats_tokens">%1$s tokens</string>
     <string name="chat_stats_tokens_of_max">%1$s / %2$s tokens</string>
@@ -278,6 +280,22 @@
     <string name="chat_thinking_checking">Checking your transactions…</string>
     <string name="chat_thinking_crunching">Crunching the numbers…</string>
     <string name="chat_thinking_one_moment">One moment…</string>
+    <string name="chat_thinking_title">🧠 Pensando…</string>
+    <string name="chat_thinking_tokens">%1$d tokens</string>
+    <string name="chat_thinking_collapse">Colapsar</string>
+    <string name="chat_thinking_expand">Expandir</string>
+    <string name="chat_camera_content_description">Take photo of receipt</string>
+    <string name="chat_microphone_content_description">Hold to record voice note</string>
+    <string name="chat_attach_content_description">Attach photo</string>
+    <string name="chat_camera_take_photo">Take photo</string>
+    <string name="chat_camera_choose_gallery">Choose from gallery</string>
+    <string name="chat_recording">Recording…</string>
+    <string name="chat_release_to_send">Release to send</string>
+    <!-- User message markers for media (photo/voice) -->
+    <string name="chat_user_photo_message">📷 Photo</string>
+    <string name="chat_user_voice_message">🎤 Voice note</string>
+    <string name="chat_user_photo_message_en">📷 Photo</string>
+    <string name="chat_user_voice_message_en">🎤 Voice note</string>
     <string name="chat_empty_title">Add a spend or ask about it</string>
     <string name="chat_empty_body">Try one of these prompts</string>
     <!-- Example prompts: tapping one sends it to the on-device model as the user's message. -->
@@ -303,6 +321,9 @@
     <string name="chat_error_memory_full">Chat memory is full. Please clear the chat to continue.</string>
     <string name="chat_error_model_downloading">Model is downloading. Please wait.</string>
     <string name="chat_error_model_not_downloaded">AI model not downloaded. Go to Settings to download.</string>
+    <string name="chat_error_vision_requires_gemma3n">Photos need the Gemma 3n model. Switch models in Settings.</string>
+    <string name="chat_error_audio_requires_gemma3n">Voice notes need the Gemma 3n model. Switch models in Settings.</string>
+    <string name="chat_error_media_unreadable">Couldn’t read that file. Try another one.</string>
     <string name="chat_error_generate_failed">Failed to generate response</string>
     <string name="chat_error_send_failed">Failed to send message</string>
     <string name="chat_error_no_storage">Not enough storage space for download</string>

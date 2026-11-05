@@ -49,6 +49,7 @@ class SupportedBanksDocTest {
         "TRY" to CountryMeta("Turkey", "🇹🇷", "₺"),
         "OMR" to CountryMeta("Oman", "🇴🇲", "ر.ع."),
         "JOD" to CountryMeta("Jordan", "🇯🇴", "JD"),
+        "MXN" to CountryMeta("Mexico", "🇲🇽", "$"),
         "EUR" to CountryMeta("Eurozone", "🇪🇺", "€"),
         "GBP" to CountryMeta("United Kingdom", "🇬🇧", "£"),
     )

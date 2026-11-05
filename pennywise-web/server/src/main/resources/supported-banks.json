@@ -1,6 +1,4 @@
 {
-  "totalBanks": 172,
-  "totalCountries": 26,
   "countries": [
     {
       "country": "India",
@@ -145,6 +143,14 @@
       "symbol": "Ksh",
       "bankCount": 2,
       "banks": ["Equity Bank", "M-PESA"]
+    },
+    {
+      "country": "Mexico",
+      "flag": "🇲🇽",
+      "currency": "MXN",
+      "symbol": "$",
+      "bankCount": 2,
+      "banks": ["American Express Mexico", "BBVA Mexico"]
     },
     {
       "country": "United Kingdom",

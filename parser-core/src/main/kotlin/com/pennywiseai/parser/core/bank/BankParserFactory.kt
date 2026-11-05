@@ -54,6 +54,12 @@ object BankParserFactory {
         IndianOverseasBankParser(),
         AirtelPaymentsBankParser(),
         IndusIndBankParser(),
+        // American Express Mexico debe ir ANTES de AMEXBankParser: el parser de
+        // India matchea contains("AMEX") y el sender de AMEX Mexico es el mismo
+        // alfanumérico "AMEX" (verificado en device 2026-10-24). El parser MX
+        // gatea su parse() por contenido en español, así que un SMS en inglés
+        // de India cae al parser de India por el despacho content-aware.
+        AmexMexicoParser(),
         AMEXBankParser(),
         OneCardParser(),
         PluxeeBankParser(),  // Pluxee (India) — prepaid meal-benefit card (rebrand of Sodexo); PLUXEE DLT sender
@@ -77,6 +83,7 @@ object BankParserFactory {
         MillenniumBimParser(),  // Millennium BIM (Mozambique)
         EverestBankParser(),  // Everest Bank (Nepal)
         BancolombiaParser(),  // Bancolombia (Colombia)
+        BBVAMexicoParser(),  // BBVA Mexico — sender SMS oficial 266845 + alias BBVAMX para notificaciones push de la app
         BancoCuscatlanParser(),  // Banco Cuscatlan (El Salvador)
         BancoPromericaParser(),  // Banco Promerica (El Salvador) — must precede BancoAgricola: Promerica bodies
         // mention Transfer365, and Agricola claims the shared "Transfer365" sender (it gates its own parse()

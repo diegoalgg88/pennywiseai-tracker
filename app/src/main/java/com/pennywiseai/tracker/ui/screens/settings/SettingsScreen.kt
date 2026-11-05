@@ -27,6 +27,9 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.material3.SelectableDates
 import androidx.compose.runtime.*
@@ -50,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pennywiseai.tracker.core.Constants
+import com.pennywiseai.tracker.core.ChatModels
 import com.pennywiseai.tracker.ui.UiText
 import com.pennywiseai.tracker.ui.components.CustomTitleTopAppBar
 import com.pennywiseai.tracker.ui.components.SupportDevelopmentDialog
@@ -872,15 +876,135 @@ fun SettingsScreen(
             // ── AI Features ──
             SectionHeaderV2(title = stringResource(R.string.settings_ai_section))
             SettingsGroup {
+                val supportedModels by settingsViewModel.supportedModels.collectAsStateWithLifecycle(initialValue = emptyList())
                 AiChatSettingsItem(
                     downloadState = downloadState,
                     downloadProgress = downloadProgress,
                     downloadedMB = downloadedMB,
                     totalMB = totalMB,
+                    supportedModels = supportedModels,
+                    selectedModelId = settingsViewModel.selectedModelId.collectAsStateWithLifecycle().value,
+                    onSelectModel = { settingsViewModel.selectModel(it) },
                     onDownload = { settingsViewModel.startModelDownload() },
                     onCancel = { settingsViewModel.cancelDownload() },
                     onDelete = { settingsViewModel.deleteModel() }
                 )
+            }
+            SettingsGroup {
+                // Custom instructions for AI chat (F7-T1)
+                val customInstructions by settingsViewModel.customInstructions.collectAsStateWithLifecycle(initialValue = "")
+                var instructionsText by remember { mutableStateOf(customInstructions) }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { /* text field handles input */ }
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconTile(
+                            icon = Icons.Default.Note,
+                            containerColor = indigo_light,
+                            contentColor = indigo_dark
+                        )
+                        RowLabels(
+                            title = stringResource(R.string.settings_ai_custom_instructions_title),
+                            subtitle = stringResource(R.string.settings_ai_custom_instructions_subtitle)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = instructionsText,
+                        onValueChange = { instructionsText = it },
+                        label = { Text(stringResource(R.string.settings_ai_custom_instructions_label)) },
+                        placeholder = { Text(stringResource(R.string.settings_ai_custom_instructions_placeholder)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = Spacing.xs, bottom = Spacing.sm),
+                        singleLine = false,
+                        maxLines = 4,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        keyboardActions = KeyboardActions(onDone = {
+                            settingsViewModel.setCustomInstructions(instructionsText)
+                        }),
+                        shape = MaterialTheme.shapes.large,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_ai_custom_instructions_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            SettingsGroup {
+                // System prompt additions (F8-T1)
+                val systemPromptAdditions by settingsViewModel.systemPromptAdditions.collectAsStateWithLifecycle(initialValue = "")
+                var additionsText by remember { mutableStateOf(systemPromptAdditions) }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { /* text field handles input */ }
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconTile(
+                            icon = Icons.Default.Psychology,
+                            containerColor = indigo_light,
+                            contentColor = indigo_dark
+                        )
+                        RowLabels(
+                            title = stringResource(R.string.settings_ai_system_prompt_additions_title),
+                            subtitle = stringResource(R.string.settings_ai_system_prompt_additions_subtitle)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = additionsText,
+                        onValueChange = { additionsText = it },
+                        label = { Text(stringResource(R.string.settings_ai_system_prompt_additions_label)) },
+                        placeholder = { Text(stringResource(R.string.settings_ai_system_prompt_additions_placeholder)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = Spacing.xs, bottom = Spacing.sm),
+                        singleLine = false,
+                        maxLines = 4,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        keyboardActions = KeyboardActions(onDone = {
+                            settingsViewModel.setSystemPromptAdditions(additionsText)
+                        }),
+                        shape = MaterialTheme.shapes.large,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_ai_system_prompt_additions_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             SettingsGroup {
                 SettingsNavItem(
@@ -892,6 +1016,329 @@ fun SettingsScreen(
                     onClick = { if (isProEntitled) onNavigateToAiAccess() else showUpgradeSheet = true },
                     position = ListItemPosition.Single
                 )
+            }
+
+            // ── Experimental ──
+            SectionHeaderV2(title = stringResource(R.string.settings_experimental_section))
+            SettingsGroup {
+                // Custom HF Model configuration (F8-T2)
+                val customModelConfig by settingsViewModel.customModelConfig.collectAsStateWithLifecycle(initialValue = null)
+                val validationState by settingsViewModel.customModelValidationState.collectAsStateWithLifecycle(initialValue = com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.IDLE)
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.md)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { /* handled by text fields */ }
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconTile(
+                            icon = Icons.Default.Science,
+                            containerColor = orange_light,
+                            contentColor = orange_dark
+                        )
+                        RowLabels(
+                            title = stringResource(R.string.settings_custom_model_title),
+                            subtitle = stringResource(R.string.settings_custom_model_subtitle)
+                        )
+                    }
+
+                    // Validation status indicator
+                    when (validationState) {
+                        com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.IDLE -> {
+                            Text(
+                                text = stringResource(R.string.settings_custom_model_idle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.PENDING_VALIDATION -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(Dimensions.Icon.small))
+                                Text(
+                                    text = stringResource(R.string.settings_custom_model_validating),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.VALIDATED -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = stringResource(R.string.settings_custom_model_validated),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(Dimensions.Icon.small)
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_custom_model_validated),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.DOWNLOADING -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(Dimensions.Icon.small))
+                                Text(
+                                    text = stringResource(R.string.settings_custom_model_downloading),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.READY -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = stringResource(R.string.settings_custom_model_ready),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(Dimensions.Icon.small)
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_custom_model_ready),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.ERROR -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Error,
+                                    contentDescription = stringResource(R.string.settings_custom_model_error),
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(Dimensions.Icon.small)
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_custom_model_error),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+
+                    // Config fields - only show when IDLE or ERROR (allowing re-entry)
+                    if (validationState == com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.IDLE ||
+                        validationState == com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.ERROR) {
+                        // Local state for editable fields
+                        val repoId = remember { mutableStateOf(customModelConfig?.repoId ?: "") }
+                        val fileName = remember { mutableStateOf(customModelConfig?.fileName ?: "") }
+                        val sha256 = remember { mutableStateOf(customModelConfig?.sha256 ?: "") }
+                        val sizeBytes = remember { mutableStateOf(customModelConfig?.sizeBytes?.toString() ?: "") }
+                        val contextTokens = remember { mutableStateOf(customModelConfig?.contextTokens?.toString() ?: "") }
+                        val minRamBytes = remember { mutableStateOf(customModelConfig?.minRamBytes?.toString() ?: "") }
+                        val displayName = remember { mutableStateOf(customModelConfig?.displayName ?: "") }
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                        ) {
+                            OutlinedTextField(
+                                value = repoId.value,
+                                onValueChange = { repoId.value = it },
+                                label = { Text(stringResource(R.string.settings_custom_model_repo_id_label)) },
+                                placeholder = { Text(stringResource(R.string.settings_custom_model_repo_id_placeholder)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                                shape = MaterialTheme.shapes.large,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                )
+                            )
+                            OutlinedTextField(
+                                value = fileName.value,
+                                onValueChange = { fileName.value = it },
+                                label = { Text(stringResource(R.string.settings_custom_model_file_name_label)) },
+                                placeholder = { Text(stringResource(R.string.settings_custom_model_file_name_placeholder)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                                shape = MaterialTheme.shapes.large,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                )
+                            )
+                            OutlinedTextField(
+                                value = sha256.value,
+                                onValueChange = { sha256.value = it },
+                                label = { Text(stringResource(R.string.settings_custom_model_sha256_label)) },
+                                placeholder = { Text(stringResource(R.string.settings_custom_model_sha256_placeholder)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                                shape = MaterialTheme.shapes.large,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                )
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                            ) {
+                                OutlinedTextField(
+                                    value = sizeBytes.value,
+                                    onValueChange = { sizeBytes.value = it },
+                                    label = { Text(stringResource(R.string.settings_custom_model_size_label)) },
+                                    placeholder = { Text(stringResource(R.string.settings_custom_model_size_placeholder)) },
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+                                OutlinedTextField(
+                                    value = contextTokens.value,
+                                    onValueChange = { contextTokens.value = it },
+                                    label = { Text(stringResource(R.string.settings_custom_model_context_label)) },
+                                    placeholder = { Text(stringResource(R.string.settings_custom_model_context_placeholder)) },
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                            ) {
+                                OutlinedTextField(
+                                    value = minRamBytes.value,
+                                    onValueChange = { minRamBytes.value = it },
+                                    label = { Text(stringResource(R.string.settings_custom_model_ram_label)) },
+                                    placeholder = { Text(stringResource(R.string.settings_custom_model_ram_placeholder)) },
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+                                OutlinedTextField(
+                                    value = displayName.value,
+                                    onValueChange = { displayName.value = it },
+                                    label = { Text(stringResource(R.string.settings_custom_model_display_label)) },
+                                    placeholder = { Text(stringResource(R.string.settings_custom_model_display_placeholder)) },
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+                            }
+                            // Validate button
+                            Button(
+                                onClick = {
+                                    settingsViewModel.validateCustomModel(
+                                        repoId = repoId.value,
+                                        fileName = fileName.value,
+                                        sha256 = sha256.value,
+                                        sizeBytes = sizeBytes.value.toLongOrNull() ?: 0L,
+                                        contextTokens = contextTokens.value.toIntOrNull() ?: 0,
+                                        minRamBytes = minRamBytes.value.toLongOrNull() ?: 0L,
+                                        displayName = displayName.value
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = validationState != com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.PENDING_VALIDATION &&
+                                          validationState != com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.DOWNLOADING &&
+                                          repoId.value.isNotBlank() && fileName.value.isNotBlank() && sha256.value.isNotBlank()
+                            ) {
+                                Text(stringResource(R.string.settings_custom_model_validate))
+                            }
+                        }
+                    }
+
+                    // Validated/Ready state - show save/clear buttons
+                    if (validationState == com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.VALIDATED) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                        ) {
+                            Button(
+                                onClick = { settingsViewModel.saveCustomModelConfig() },
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.settings_custom_model_save))
+                            }
+                            OutlinedButton(
+                                onClick = { settingsViewModel.clearCustomModelConfig() },
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.settings_custom_model_clear))
+                            }
+                        }
+                    }
+
+                    // Ready state - show clear button
+                    if (validationState == com.pennywiseai.tracker.ui.screens.settings.SettingsViewModel.CustomModelValidationState.READY) {
+                        OutlinedButton(
+                            onClick = { settingsViewModel.clearCustomModelConfig() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.settings_custom_model_clear))
+                        }
+                    }
+                }
             }
 
             // ── Developer ──
@@ -914,8 +1361,78 @@ fun SettingsScreen(
                     subtitle = stringResource(R.string.settings_developer_mode_subtitle),
                     checked = isDeveloperModeEnabled,
                     onCheckedChange = { settingsViewModel.toggleDeveloperMode(it) },
-                    position = ListItemPosition.Bottom
+                    position = ListItemPosition.Middle
                 )
+                AnimatedVisibility(visible = isDeveloperModeEnabled) {
+                    // Thinking settings (only for Gemma 4 E2B model)
+                    val selectedModelId = settingsViewModel.selectedModelId.collectAsStateWithLifecycle().value
+                    val isGemma = selectedModelId == com.pennywiseai.tracker.core.ChatModels.GEMMA_4_E2B.id
+                    val thinkingEnabled by settingsViewModel.isThinkingEnabled.collectAsStateWithLifecycle(initialValue = false)
+                    val thinkingBudget by settingsViewModel.thinkingBudgetTokens.collectAsStateWithLifecycle(initialValue = 1024)
+                    val thinkingShowRaw by settingsViewModel.thinkingShowRaw.collectAsStateWithLifecycle(initialValue = false)
+
+                    if (isGemma) {
+                        SettingsSwitchRow(
+                            icon = Icons.Default.Psychology,
+                            iconBgColor = indigo_light,
+                            iconTint = indigo_dark,
+                            title = stringResource(R.string.settings_thinking_title),
+                            subtitle = stringResource(R.string.settings_thinking_subtitle),
+                            checked = thinkingEnabled,
+                            onCheckedChange = { settingsViewModel.setThinkingEnabled(it) },
+                            position = ListItemPosition.Middle
+                        )
+                        AnimatedVisibility(visible = thinkingEnabled) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Dimensions.Padding.content, vertical = Spacing.sm)
+                            ) {
+                                // Thinking budget slider
+                                var budget by remember { mutableStateOf(thinkingBudget) }
+                                Text(
+                                    text = stringResource(R.string.settings_thinking_budget_title),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Slider(
+                                    value = budget.toFloat(),
+                                    onValueChange = { budget = it.toInt() },
+                                    onValueChangeFinished = { settingsViewModel.setThinkingBudgetTokens(budget) },
+                                    valueRange = 256f..4096f,
+                                    steps = (4096 - 256) / 256,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = "${budget} tokens",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End)
+                                )
+
+                                SettingsSwitchRow(
+                                    icon = Icons.Default.Code,
+                                    iconBgColor = indigo_light,
+                                    iconTint = indigo_dark,
+                                    title = stringResource(R.string.settings_thinking_show_raw_title),
+                                    subtitle = stringResource(R.string.settings_thinking_show_raw_subtitle),
+                                    checked = thinkingShowRaw,
+                                    onCheckedChange = { settingsViewModel.setThinkingShowRaw(it) },
+                                    position = ListItemPosition.Bottom
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = stringResource(R.string.settings_thinking_requires_gemma),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimensions.Padding.content, vertical = Spacing.sm)
+                        )
+                    }
+                }
             }
 
             // ── Support & Community ──
@@ -1708,6 +2225,9 @@ private fun AiChatSettingsItem(
     downloadProgress: Int,
     downloadedMB: Long,
     totalMB: Long,
+    supportedModels: List<com.pennywiseai.tracker.core.ChatModelSpec>,
+    selectedModelId: String,
+    onSelectModel: (String) -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit
@@ -1729,7 +2249,7 @@ private fun AiChatSettingsItem(
             RowLabels(
                 title = stringResource(R.string.settings_ai_chat_title),
                 subtitle = when (downloadState) {
-                    DownloadState.NOT_DOWNLOADED -> stringResource(R.string.settings_ai_status_not_downloaded, Constants.ModelDownload.MODEL_SIZE_MB)
+                    DownloadState.NOT_DOWNLOADED -> stringResource(R.string.settings_ai_status_not_downloaded, supportedModels.firstOrNull { it.id == selectedModelId }?.sizeMb ?: 0L)
                     DownloadState.DOWNLOADING -> stringResource(R.string.settings_ai_status_downloading)
                     DownloadState.PAUSED -> stringResource(R.string.settings_ai_status_paused)
                     DownloadState.COMPLETED -> stringResource(R.string.settings_ai_status_completed)
@@ -1797,6 +2317,55 @@ private fun AiChatSettingsItem(
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(Dimensions.Icon.medium)
                     )
+                }
+            }
+        }
+
+        // Selector de modelo: radios solo cuando hay más de una opción viable.
+        if (supportedModels.size > 1) {
+            HorizontalDivider()
+            Text(
+                text = stringResource(R.string.settings_ai_model_selector),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            supportedModels.forEach { spec ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { onSelectModel(spec.id) }
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = spec.id == selectedModelId,
+                        onClick = { onSelectModel(spec.id) }
+                    )
+                    Column {
+                        Text(
+                            text = stringResource(
+                                when (spec.id) {
+                                    ChatModels.GEMMA_4_E2B.id -> R.string.settings_ai_model_gemma4
+                                    ChatModels.GEMMA_3N_E2B.id -> R.string.settings_ai_model_gemma3n
+                                    ChatModels.WHISPER_BASE.id -> R.string.settings_ai_model_whisper
+                                    else -> when {
+                                        spec.isCustom -> R.string.settings_ai_model_custom
+                                        else -> R.string.settings_ai_model_qwen
+                                    }
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_ai_model_size, spec.sizeMb),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
