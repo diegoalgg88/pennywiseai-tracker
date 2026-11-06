@@ -94,6 +94,50 @@ open class TransactionRepository @Inject constructor(
     fun searchTransactions(query: String): Flow<List<TransactionEntity>> =
         transactionDao.searchTransactions(query)
 
+    /**
+     * Rich search with multiple optional filters.
+     * All parameters are optional - use empty string or null to skip a filter.
+     *
+     * @param query Free-text query to match against merchant, notes, category
+     * @param dateFrom Start date (inclusive)
+     * @param dateTo End date (inclusive)
+     * @param category Category name to filter by
+     * @param merchant Merchant name to filter by
+     * @param amountMin Minimum amount
+     * @param amountMax Maximum amount
+     * @param account Account alias or last 4 digits
+     * @param currency Currency code (ISO 4217)
+     * @param type Transaction type: EXPENSE or INCOME
+     * @param limit Maximum results to return, max 50; default 20
+     * @return List of matching transactions
+     */
+    suspend fun searchTransactions(
+        query: String?,
+        dateFrom: LocalDateTime?,
+        dateTo: LocalDateTime?,
+        category: String?,
+        merchant: String?,
+        amountMin: BigDecimal?,
+        amountMax: BigDecimal?,
+        account: String?,
+        currency: String?,
+        type: TransactionType?,
+        limit: Int = 20
+    ): List<TransactionEntity> =
+        transactionDao.searchTransactions(
+            query = query,
+            dateFrom = dateFrom,
+            dateTo = dateTo,
+            category = category,
+            merchant = merchant,
+            amountMin = amountMin,
+            amountMax = amountMax,
+            account = account,
+            currency = currency,
+            type = type?.name,
+            limit = limit
+        )
+
     fun getAllCurrencies(): Flow<List<String>> =
         transactionDao.getAllCurrencies()
 

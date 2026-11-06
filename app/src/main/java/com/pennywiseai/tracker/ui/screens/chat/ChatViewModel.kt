@@ -188,7 +188,8 @@ class ChatViewModel @Inject constructor(
     fun sendAttachedImage() {
         _attachedImage.value?.let { uri ->
             clearAttachment()
-            sendImage(uri)
+            // Send with empty message - the model will use IMAGE_PROMPT to analyze the image
+            runGeneration { llmRepository.sendMessageWithImage("", uri) }
         }
     }
 
@@ -314,7 +315,13 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(message: String) {
         if (message.isBlank() || _uiState.value.isLoading) return
         // A new message supersedes any card still waiting from the last one.
-        runGeneration { llmRepository.sendMessageStream(message) }
+        val attachedImage = _attachedImage.value
+        if (attachedImage != null) {
+            clearAttachment()
+            runGeneration { llmRepository.sendMessageWithImage(message, attachedImage) }
+        } else {
+            runGeneration { llmRepository.sendMessageStream(message) }
+        }
     }
 
     fun clearChat() {
@@ -364,22 +371,14 @@ class ChatViewModel @Inject constructor(
     fun cancelDownload() = modelDownloader.cancel()
 
     /**
-     * Sends an image for vision tasks (receipt OCR → addTransaction).
-     * Only works when the active model is Gemma 3n E2B (vision capable).
-     */
-    fun sendImage(imageUri: android.net.Uri) {
-        if (_uiState.value.isLoading) return
-        runGeneration { llmRepository.sendMessageWithImage(imageUri) }
-    }
-
-    /**
      * Envía una nota de voz para transcripción (audio → texto → addTransaction).
      * Solo funciona con Gemma 3n E2B (multimodal nativo audio + visión).
      * Whisper Base es ASR-only y no es modelo de chat (W3).
+     * El mensaje del usuario se envía junto con el audio para dar contexto.
      */
-    fun sendAudio(audioUri: android.net.Uri) {
+    fun sendAudio(audioUri: android.net.Uri, userMessage: String = "") {
         if (_uiState.value.isLoading) return
-        runGeneration { llmRepository.sendMessageWithAudio(audioUri) }
+        runGeneration { llmRepository.sendMessageWithAudio(userMessage, audioUri) }
     }
 
     private companion object {

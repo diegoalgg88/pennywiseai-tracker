@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.util.Log
 import com.pennywiseai.tracker.data.database.dao.ChatDao
 import com.pennywiseai.tracker.data.database.entity.ChatMessage
+import com.pennywiseai.tracker.data.database.entity.SubscriptionState
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.model.ChatContext
 import com.pennywiseai.tracker.data.preferences.IgnoredAccountsStore
@@ -48,6 +49,8 @@ open class LlmRepository @Inject constructor(
     private val transactionRepository: TransactionRepository,
     private val budgetRepository: BudgetRepository,
     private val ignoredAccountsStore: IgnoredAccountsStore,
+    private val exchangeRateProvider: com.pennywiseai.tracker.data.currency.CurrencyConversionService,
+    private val subscriptionRepository: com.pennywiseai.tracker.data.repository.SubscriptionRepository,
     @ApplicationContext private val context: Context
 ) {
 
@@ -154,29 +157,33 @@ open class LlmRepository @Inject constructor(
     /**
      * Send a message with an image for vision tasks (receipt OCR → addTransaction).
      * Only works when the active model is Gemma 3n E2B (vision capable).
+     * The user's message is sent along with the image so the model has context.
      */
-    suspend fun sendMessageWithImage(imageUri: android.net.Uri): Flow<LlmEvent> = sendMedia(
+    suspend fun sendMessageWithImage(userMessage: String, imageUri: android.net.Uri): Flow<LlmEvent> = sendMedia(
         uri = imageUri,
         prefix = "image",
         defaultExtension = "jpg",
         markerRes = R.string.chat_user_photo_message,
         unsupported = ChatError.VisionRequiresGemma3n(),
-        label = "image"
-    ) { file -> llmService.sendMessageWithImage(IMAGE_PROMPT, file) }
+        label = "image",
+        userMessage = userMessage
+    ) { file -> llmService.sendMessageWithImage(userMessage, file) }
 
     /**
      * Envía un mensaje con audio para transcripción (nota de voz → addTransaction).
      * Solo funciona con Gemma 3n E2B (multimodal nativo audio + visión).
      * Whisper Base es ASR-only y no es modelo de chat (W3).
+     * El mensaje del usuario se envía junto con el audio para dar contexto.
      */
-    suspend fun sendMessageWithAudio(audioUri: android.net.Uri): Flow<LlmEvent> = sendMedia(
+    suspend fun sendMessageWithAudio(userMessage: String, audioUri: android.net.Uri): Flow<LlmEvent> = sendMedia(
         uri = audioUri,
         prefix = "audio",
         defaultExtension = "wav",
         markerRes = R.string.chat_user_voice_message,
         unsupported = ChatError.AudioRequiresGemma3n(),
-        label = "audio"
-    ) { file -> llmService.sendMessageWithAudio(AUDIO_PROMPT, file) }
+        label = "audio",
+        userMessage = userMessage
+    ) { file -> llmService.sendMessageWithAudio(userMessage, file) }
 
     /**
      * Shared path for photo and voice input. The user gets a localized marker row (no
@@ -191,14 +198,15 @@ open class LlmRepository @Inject constructor(
         @androidx.annotation.StringRes markerRes: Int,
         unsupported: ChatError,
         label: String,
+        userMessage: String,
         send: (android.net.Uri) -> Flow<LlmEvent>
     ): Flow<LlmEvent> {
         modelRepository.refreshActiveModel()
         if (!ChatModels.isMultimodal(modelRepository.activeSpec())) throw unsupported
         requireModelNotDownloading()
-        requireFitsChatBudget(chatDao.getAllMessagesForContext(), "")
+        requireFitsChatBudget(chatDao.getAllMessagesForContext(), userMessage)
 
-        val userChatMessage = ChatMessage(message = context.getString(markerRes), isUser = true)
+        val userChatMessage = ChatMessage(message = userMessage, isUser = true)
         chatDao.insertMessage(userChatMessage)
 
         // LiteRT-LM opens media by file path, so content:// URIs (gallery picker,
@@ -215,7 +223,7 @@ open class LlmRepository @Inject constructor(
                 // The marker row is excluded from the replay: it is the message being sent.
                 ensureConversation(userChatMessage.id)
                 Log.d(TAG, "=== SENDING TO LLM ($label) ===")
-                emitAll(respond("", send(android.net.Uri.fromFile(media.file)), label, userChatMessage.id))
+                emitAll(respond(userMessage, send(android.net.Uri.fromFile(media.file)), label, userChatMessage.id))
             } catch (t: Throwable) {
                 // respond() cleans up after a failed stream; this covers a failure before it.
                 if (chatDao.getAllMessagesForContext().lastOrNull()?.id == userChatMessage.id) {
@@ -359,22 +367,44 @@ open class LlmRepository @Inject constructor(
      * File URIs are used as-is; anything else is copied into app-private storage.
      * If the URI comes from our FileProvider (camera_temp/ or voice_notes/), the
      * original temp file is deleted after successful copy.
+     * 
+     * For images, converts HEIC/HEIF to JPEG since LiteRT-LM vision doesn't support HEIC format.
      */
     internal suspend fun materializeMedia(uri: android.net.Uri, prefix: String, defaultExtension: String): MediaFile {
         if (uri.scheme == null || uri.scheme == android.content.ContentResolver.SCHEME_FILE) {
             val path = uri.path ?: throw ChatError.MediaUnreadable(Exception("Invalid media URI."))
             return MediaFile(java.io.File(path), isTemporary = false)
         }
-        val extension = context.contentResolver.getType(uri)
-            ?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
+        val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+        val extension = mimeType.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
             ?: defaultExtension
+        val isImage = mimeType.startsWith("image/")
+        val targetExtension = if (isImage && (extension.equals("heic", ignoreCase = true) || extension.equals("heif", ignoreCase = true))) {
+            "jpg" // Convert HEIC/HEIF to JPEG
+        } else {
+            extension
+        }
         val directory = java.io.File(context.filesDir, "chat_media").apply { mkdirs() }
-        val target = java.io.File(directory, "$prefix-${UUID.randomUUID()}.$extension")
+        val target = java.io.File(directory, "$prefix-${UUID.randomUUID()}.$targetExtension")
         try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val input = context.contentResolver.openInputStream(uri)
                     ?: throw java.io.IOException("Could not open the selected file.")
-                input.use { source -> target.outputStream().use { sink -> source.copyTo(sink) } }
+                if (isImage && (extension.equals("heic", ignoreCase = true) || extension.equals("heif", ignoreCase = true))) {
+                    // Convert HEIC/HEIF to JPEG using BitmapFactory
+                    val bitmap = android.graphics.BitmapFactory.decodeStream(input)
+                    if (bitmap != null) {
+                        java.io.FileOutputStream(target).use { output ->
+                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, output)
+                        }
+                    } else {
+                        // Fallback: copy as-is if decoding fails
+                        input.use { source -> target.outputStream().use { sink -> source.copyTo(sink) } }
+                    }
+                } else {
+                    // Non-image or non-HEIC: copy as-is
+                    input.use { source -> target.outputStream().use { sink -> source.copyTo(sink) } }
+                }
             }
         } catch (e: Exception) {
             target.delete()
@@ -625,7 +655,90 @@ open class LlmRepository @Inject constructor(
             "Spent so far this month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency)} over ${m.currentDay} of ${m.daysInMonth} days. " +
                 "At this pace, the month will end around ${CurrencyFormatter.formatCurrency(forecast, currency)}."
         }
-        else -> null
+        PennyWiseTools.SEARCH_TRANSACTIONS -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val query = call.arguments.arg("query") as? String
+            val dateFrom = (call.arguments.arg("dateFrom") as? String)?.let { java.time.LocalDate.parse(it).atStartOfDay() }
+            val dateTo = (call.arguments.arg("dateTo") as? String)?.let { java.time.LocalDate.parse(it).atTime(23, 59, 59) }
+            val category = call.arguments.arg("category") as? String
+            val merchant = call.arguments.arg("merchant") as? String
+            val amountMin = (call.arguments.arg("amountMin") as? Number)?.let { java.math.BigDecimal.valueOf(it.toDouble()) }
+            val amountMax = (call.arguments.arg("amountMax") as? Number)?.let { java.math.BigDecimal.valueOf(it.toDouble()) }
+            val account = call.arguments.arg("account") as? String
+            val currencyFilter = call.arguments.arg("currency") as? String
+            val type = call.arguments.arg("type") as? String
+            val limit = (call.arguments.arg("limit") as? Number)?.toInt()?.coerceIn(1, 50) ?: 20
+            val results = transactionRepository.searchTransactions(
+                query = query,
+                dateFrom = dateFrom,
+                dateTo = dateTo,
+                category = category,
+                merchant = merchant,
+                amountMin = amountMin,
+                amountMax = amountMax,
+                account = account,
+                currency = currencyFilter,
+                type = type?.let { TransactionType.valueOf(it) },
+                limit = limit
+            )
+            if (results.isEmpty()) return@handleToolCallInner "No transactions match your filters."
+            results.joinToString("\n") { t ->
+                "${CurrencyFormatter.formatCurrency(t.amount, t.currency)} at ${t.merchantName} · ${t.category} · ${t.dateTime.toLocalDate()}"
+            }
+        }
+        PennyWiseTools.SPENDING_TREND -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val monthsBack = (call.arguments.arg("monthsBack") as? Number)?.toInt()?.coerceIn(3, 12) ?: 6
+            val granularity = call.arguments.arg("granularity") as? String
+            val isWeekly = granularity?.uppercase() == "WEEK"
+            val trend = aiContextRepository.getSpendingTrend(monthsBack, isWeekly)
+            if (trend.isEmpty()) return@handleToolCallInner "Not enough data for a trend."
+            trend.joinToString("\n") { (period, amount) ->
+                "$period: ${CurrencyFormatter.formatCurrency(amount, currency)}"
+            }
+        }
+        PennyWiseTools.SUBSCRIPTION_SUMMARY -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val status = call.arguments.arg("status") as? String
+            val state = status?.let { SubscriptionState.valueOf(it) } ?: SubscriptionState.ACTIVE
+            val subs = subscriptionRepository.getSubscriptionsByStateList(state)
+            if (subs.isEmpty()) return@handleToolCallInner "No subscriptions found."
+            subs.joinToString("\n") { s ->
+                "${s.merchantName}: ${CurrencyFormatter.formatCurrency(s.amount, s.currency)} · ${s.direction} · next ${s.nextPaymentDate} · ${s.state}"
+            }
+        }
+        PennyWiseTools.EXCHANGE_RATE -> {
+            val amount = (call.arguments.arg("amount") as? Number)?.toDouble() ?: 0.0
+            val fromCurrency = call.arguments.arg("fromCurrency") as? String
+            val toCurrency = call.arguments.arg("toCurrency") as? String
+            val useCustomRate = (call.arguments.arg("useCustomRate") as? Boolean) ?: true
+            if (fromCurrency == null || toCurrency == null || amount == 0.0) {
+                "I need amount, fromCurrency, and toCurrency."
+            } else {
+                val rate = exchangeRateProvider.getExchangeRate(fromCurrency, toCurrency, !useCustomRate)
+                val converted = java.math.BigDecimal(amount).multiply(rate)
+                "Exchange rate: 1 $fromCurrency = $rate $toCurrency\n${CurrencyFormatter.formatCurrency(amount, fromCurrency)} = ${CurrencyFormatter.formatCurrency(converted, toCurrency)}"
+            }
+        }
+        PennyWiseTools.CATEGORY_STATS -> {
+            val currency = userPreferencesRepository.baseCurrency.first()
+            val category = call.arguments.arg("category") as? String ?: return@handleToolCallInner "I need a category name."
+            val monthsBack = (call.arguments.arg("monthsBack") as? Number)?.toInt() ?: 3
+            val stats = aiContextRepository.getCategoryStats(category, monthsBack)
+            if (stats == null) return@handleToolCallInner "No stats for $category."
+            "Category: $category (last $monthsBack months)\n" +
+                "Avg: ${CurrencyFormatter.formatCurrency(stats.average, currency)}\n" +
+                "Median: ${CurrencyFormatter.formatCurrency(stats.median, currency)}\n" +
+                "Top merchants: ${stats.topMerchants.joinToString(", ")}\n" +
+                "vs Budget: ${stats.budgetPercentage.toInt()}%"
+        }
+        else -> {
+            // Unknown tool - log and return null to avoid saving blank message
+            if (com.pennywiseai.tracker.BuildConfig.DEBUG) {
+                Log.w(TAG, "Unknown tool called: ${call.name}")
+            }
+            null
+        }
     }
 
     private suspend fun findTransaction(args: Map<String, Any?>): TransactionFinder.Match? {
@@ -740,12 +853,17 @@ open class LlmRepository @Inject constructor(
             When the user tells you about money they spent, paid, bought or received, call addTransaction. Use EXPENSE unless they clearly received money.
             When the user asks how much they spent on something, call spendingByCategory; for this month's overall totals call monthSummary (the figures below are only a snapshot from when this chat started).
             When the user asks about budgets, call budgetStatus; for a per-category breakdown call categoryBreakdown; for recent activity call recentTransactions; for account balances call accountBalance; to predict the month's total call spendingForecast.
+            When the user wants to find specific transactions, call searchTransactions with filters like date range, category, merchant, amount range, account, currency, or type.
+            When the user asks about spending trends over multiple months, call spendingTrend with monthsBack and granularity (MONTH or WEEK).
+            When the user asks about subscriptions, call subscriptionSummary with optional status filter.
+            When the user asks to convert between currencies, call exchangeRate with amount, fromCurrency, toCurrency, and optional useCustomRate.
+            When the user asks for advanced category statistics, call categoryStats with category and monthsBack.
             If the user refers to something already recorded — "the tea from today", "that uber", "change", "should be", "was actually", "delete", "remove" — call updateTransaction or deleteTransaction with the words they used to identify it. Never call addTransaction for those.
             ${if (supportsVision) """
-            If the user attaches an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. Emit ONLY the addTransaction tool call with those fields.
+            If the user attaches an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. If the image/document does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults from the available accounts and categories above, and ask for explicit confirmation. Never assume currency — always use CurrencyFormatter.formatCurrency(amount, code). Emit ONLY the addTransaction tool call with those fields (after user confirms).
             """ else ""}
             ${if (supportsAudio) """
-            If the user sends a voice note, transcribe it, extract transaction fields (merchant, amount, date, category). Omit currency if not mentioned. Emit ONLY the addTransaction tool call with those fields.
+            If the user sends a voice note, transcribe it, extract transaction fields (merchant, amount, date, category). Omit currency if not mentioned. If the audio does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults. Never assume currency.
             """ else ""}
             Otherwise answer briefly and helpfully. Never invent transactions or figures, and never say you added, changed or deleted anything yourself — only the tools do that, and the user confirms each one.
 
@@ -794,8 +912,8 @@ open class LlmRepository @Inject constructor(
         private const val TAG = "LlmRepository"
 
         /** Prompt for vision (receipt OCR → addTransaction). In English (system prompt language). */
-        const val IMAGE_PROMPT = "Extract transaction from this receipt. Return merchant, amount, date, category. Omit currency if not visible."
+        const val IMAGE_PROMPT = "If the user attached an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. If the image/document does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults from the available accounts and categories above, and ask for explicit confirmation. Never assume currency — always specify the currency code (ISO 4217) with the amount. Emit ONLY the addTransaction tool call with those fields (after user confirms)."
         /** Prompt for audio (voice note → addTransaction). In English (system prompt language). */
-        const val AUDIO_PROMPT = "Transcribe this voice note and extract the transaction. Return merchant, amount, date, category. Omit currency if not mentioned."
+        const val AUDIO_PROMPT = "If the user attached an audio note, transcribe it and extract transaction details. Same rules as IMAGE_PROMPT: ask for missing fields (category, account, type, date) before calling addTransaction. Propose reasonable defaults. Never assume currency — always specify the currency code (ISO 4217) with the amount."
     }
 }

@@ -73,13 +73,13 @@ interface TransactionDao {
     """)
     suspend fun getWebhookCurrencyRemovals(currency: String, profileId: String): List<TransactionEntity>
 
-    
+
     @Query("SELECT * FROM transactions WHERE is_deleted = 0 ORDER BY date_time DESC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
 
     @Query("SELECT * FROM transactions WHERE id = :transactionId")
     suspend fun getTransactionById(transactionId: Long): TransactionEntity?
-    
+
     @Query("""
         SELECT * FROM transactions
         WHERE is_deleted = 0
@@ -115,34 +115,72 @@ interface TransactionDao {
         currency: String,
         transactionType: TransactionType?
     ): Flow<List<TransactionEntity>>
-    
+
     @Query("""
-        SELECT * FROM transactions 
-        WHERE is_deleted = 0 
-        AND transaction_type = :type 
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+        AND transaction_type = :type
         ORDER BY date_time DESC
     """)
     fun getTransactionsByType(type: TransactionType): Flow<List<TransactionEntity>>
-    
+
     @Query("""
-        SELECT * FROM transactions 
-        WHERE is_deleted = 0 
-        AND category = :category 
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+        AND category = :category
         ORDER BY date_time DESC
     """)
     fun getTransactionsByCategory(category: String): Flow<List<TransactionEntity>>
-    
+
     @Query("""
-        SELECT * FROM transactions 
-        WHERE is_deleted = 0 
-        AND (merchant_name LIKE '%' || :searchQuery || '%' 
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+        AND (merchant_name LIKE '%' || :searchQuery || '%'
         OR description LIKE '%' || :searchQuery || '%'
         OR reference LIKE '%' || :searchQuery || '%'
-        OR sms_body LIKE '%' || :searchQuery || '%') 
+        OR sms_body LIKE '%' || :searchQuery || '%')
         ORDER BY date_time DESC
     """)
     fun searchTransactions(searchQuery: String): Flow<List<TransactionEntity>>
-    
+
+    /**
+     * Rich search with multiple optional filters.
+     * All parameters are optional - use empty string or null to skip a filter.
+     */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+        AND (:query IS NULL OR :query = '' OR merchant_name LIKE '%' || :query || '%'
+            OR description LIKE '%' || :query || '%'
+            OR reference LIKE '%' || :query || '%'
+            OR category LIKE '%' || :query || '%')
+        AND (:dateFrom IS NULL OR date_time >= :dateFrom)
+        AND (:dateTo IS NULL OR date_time <= :dateTo)
+        AND (:category IS NULL OR :category = '' OR category = :category)
+        AND (:merchant IS NULL OR :merchant = '' OR merchant_name LIKE '%' || :merchant || '%')
+        AND (:amountMin IS NULL OR amount >= :amountMin)
+        AND (:amountMax IS NULL OR amount <= :amountMax)
+        AND (:account IS NULL OR :account = '' OR account_number = :account
+             OR bank_name LIKE '%' || :account || '%')
+        AND (:currency IS NULL OR :currency = '' OR currency = :currency)
+        AND (:type IS NULL OR transaction_type = :type)
+        ORDER BY date_time DESC
+        LIMIT :limit
+    """)
+    suspend fun searchTransactions(
+        query: String?,
+        dateFrom: LocalDateTime?,
+        dateTo: LocalDateTime?,
+        category: String?,
+        merchant: String?,
+        amountMin: BigDecimal?,
+        amountMax: BigDecimal?,
+        account: String?,
+        currency: String?,
+        type: String?,
+        limit: Int
+    ): List<TransactionEntity>
+
     @Query("SELECT DISTINCT category FROM transactions WHERE is_deleted = 0 ORDER BY category ASC")
     fun getAllCategories(): Flow<List<String>>
 
@@ -157,11 +195,11 @@ interface TransactionDao {
 
     @Query("SELECT DISTINCT merchant_name FROM transactions WHERE is_deleted = 0 ORDER BY merchant_name ASC")
     fun getAllMerchants(): Flow<List<String>>
-    
+
     @Query("""
-        SELECT SUM(amount) FROM transactions 
-        WHERE is_deleted = 0 
-        AND transaction_type = :type 
+        SELECT SUM(amount) FROM transactions
+        WHERE is_deleted = 0
+        AND transaction_type = :type
         AND date_time BETWEEN :startDate AND :endDate
     """)
     suspend fun getTotalAmountByTypeAndPeriod(
@@ -169,22 +207,22 @@ interface TransactionDao {
         startDate: LocalDateTime,
         endDate: LocalDateTime
     ): Double?
-    
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
-    
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransactions(transactions: List<TransactionEntity>)
-    
+
     @Update
     suspend fun updateTransaction(transaction: TransactionEntity)
-    
+
     @Delete
     suspend fun deleteTransaction(transaction: TransactionEntity)
-    
+
     @Query("DELETE FROM transactions WHERE id = :transactionId")
     suspend fun deleteTransactionById(transactionId: Long)
-    
+
     /** @return the number of rows actually removed. */
     @Query("DELETE FROM transactions")
     suspend fun deleteAllTransactions(): Int
@@ -237,7 +275,7 @@ interface TransactionDao {
           AND date_time >= :from
     """)
     suspend fun deleteRebuildableSmsTransactions(notificationAliases: List<String>, from: LocalDateTime)
-    
+
     @Query("UPDATE transactions SET category = :newCategory, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime') WHERE merchant_name = :merchantName COLLATE NOCASE")
     suspend fun updateCategoryForMerchant(merchantName: String, newCategory: String)
 
@@ -431,18 +469,18 @@ interface TransactionDao {
         since: LocalDateTime,
         limit: Int = 5,
     ): List<TransactionEntity>
-    
+
     @Query("""
-        SELECT * FROM transactions 
-        WHERE is_deleted = 0 
-        AND date_time BETWEEN :startDate AND :endDate 
+        SELECT * FROM transactions
+        WHERE is_deleted = 0
+        AND date_time BETWEEN :startDate AND :endDate
         ORDER BY date_time DESC
     """)
     suspend fun getTransactionsBetweenDatesList(
         startDate: LocalDateTime,
         endDate: LocalDateTime
     ): List<TransactionEntity>
-    
+
     @Query("""
         SELECT * FROM transactions
         WHERE is_deleted = 0
@@ -485,7 +523,7 @@ interface TransactionDao {
         AND (from_account = :accountLast4 OR to_account = :accountLast4)
     """)
     suspend fun getTransfersForAccount(accountLast4: String): List<TransactionEntity>
-    
+
     @Query("""
         SELECT * FROM transactions
         WHERE is_deleted = 0

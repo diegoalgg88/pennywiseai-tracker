@@ -15,7 +15,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class RuleEngine @Inject constructor() {
+class RuleEngine @Inject constructor(
+    private val database: com.pennywiseai.tracker.data.database.PennyWiseDatabase
+) {
 
     private val json = Json {
         ignoreUnknownKeys = true

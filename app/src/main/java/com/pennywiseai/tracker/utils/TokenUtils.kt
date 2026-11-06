@@ -16,7 +16,7 @@ object TokenUtils {
      * Kept free for what the estimate can't see: the tool schemas LiteRT-LM adds
      * to the system turn, chat-template tokens, and the reply itself.
      */
-    private const val RESERVED_TOKENS = 1536
+    private const val RESERVED_TOKENS = 2304
 
     /**
      * KV cache del modelo por defecto (Qwen2.5-1.5B q8-ekv4096). Para otro

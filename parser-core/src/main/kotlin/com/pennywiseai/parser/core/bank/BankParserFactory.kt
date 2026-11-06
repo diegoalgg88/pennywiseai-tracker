@@ -54,6 +54,10 @@ object BankParserFactory {
         IndianOverseasBankParser(),
         AirtelPaymentsBankParser(),
         IndusIndBankParser(),
+        // Telcel México (carrier) — debe ir ANTES de BBVAMexicoParser/AmexMexicoParser
+        // porque el sender "TELCEL" es alfanumérico simple y podría ser capturado
+        // por matchers amplios si existen en el futuro.
+        TelcelMexicoParser(),
         // American Express Mexico debe ir ANTES de AMEXBankParser: el parser de
         // India matchea contains("AMEX") y el sender de AMEX Mexico es el mismo
         // alfanumérico "AMEX" (verificado en device 2026-10-24). El parser MX

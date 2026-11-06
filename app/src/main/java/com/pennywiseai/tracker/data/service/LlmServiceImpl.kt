@@ -297,9 +297,11 @@ class LlmServiceImpl @Inject constructor(
                 // Without these executors the engine rejects Content.ImageFile / AudioFile
                 // ("vision executor should not be null"). Only models that ship them may ask
                 // for them; a text-only bundle fails to initialize if it is given one.
-                // The vision executor follows the engine's own backend, so a CPU fallback
-                // does not ask for a GPU delegate that isn't there.
-                visionBackend = if (multimodal) backend else null,
+                // El ejecutor de visión de Gemma 3n E2B exige GPU ([gpu]) sin importar el
+                // backend del motor; atarlo al backend principal rompía el arranque en CPU
+                // ("Vision backend constraint mismatch"). Si no hay GPU, el arranque falla
+                // con un error claro en lugar de aceptar imágenes que no podría procesar.
+                visionBackend = if (multimodal) Backend.GPU() else null,
                 audioBackend = if (multimodal) Backend.CPU() else null,
                 cacheDir = context.cacheDir.path
             )

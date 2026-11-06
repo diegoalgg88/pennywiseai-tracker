@@ -1,4 +1,6 @@
 {
+  "totalBanks": 175,
+  "totalCountries": 27,
   "countries": [
     {
       "country": "India",
@@ -129,6 +131,14 @@
       "banks": ["Banco Agricola", "Banco Cuscatlan", "Banco Promerica"]
     },
     {
+      "country": "Mexico",
+      "flag": "🇲🇽",
+      "currency": "MXN",
+      "symbol": "$",
+      "bankCount": 3,
+      "banks": ["American Express Mexico", "BBVA Mexico", "Telcel México"]
+    },
+    {
       "country": "Eurozone",
       "flag": "🇪🇺",
       "currency": "EUR",
@@ -143,14 +153,6 @@
       "symbol": "Ksh",
       "bankCount": 2,
       "banks": ["Equity Bank", "M-PESA"]
-    },
-    {
-      "country": "Mexico",
-      "flag": "🇲🇽",
-      "currency": "MXN",
-      "symbol": "$",
-      "bankCount": 2,
-      "banks": ["American Express Mexico", "BBVA Mexico"]
     },
     {
       "country": "United Kingdom",

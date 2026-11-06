@@ -1,0 +1,23 @@
+{
+  "planId": "PLAN-20261024-BANCOS-MX",
+  "lastCheckpoint": "2026-10-25T07:40:00Z",
+  "lastBatchCompleted": 5,
+  "restriction": "PROHIBIDO commit/push durante toda la implementación (instrucción explícita del usuario 2026-10-24). CERO commits/push realizados.",
+  "tasks": [
+    { "id": "F1-T1", "content": "Definir corpus de samples AMEX/BBVA MX (sintéticos + 2 reales del device)", "status": "completed" },
+    { "id": "F1-T2", "content": "Matriz banco×canal (SMS/RCS/push) — documentada con evidencia ADB", "status": "completed" },
+    { "id": "F2-T1", "content": "Crear BaseMexicoBankParser (MXN, español, FinancialMessageSafety)", "status": "completed" },
+    { "id": "F2-T2", "content": "Implementar AmexMexicoParser (sender AMEX + content-gate español)", "status": "completed" },
+    { "id": "F2-T3", "content": "Implementar BBVAMexicoParser (266845 + alias BBVAMX)", "status": "completed" },
+    { "id": "F2-T4", "content": "Registrar parsers en BankParserFactory con precedencia", "status": "completed" },
+    { "id": "F2-T5", "content": "BankNotificationConfig: packages com.bancomer.mbanking + Amex MX", "status": "completed" },
+    { "id": "F2-T6", "content": "E2E en device: APK debug instalado en R5CT422CGKH (adb install Success) + BankNotificationListenerService habilitado vía settings put verificado. Validación final con compra/push real queda del lado del usuario", "status": "completed" },
+    { "id": "F3-T1", "content": "Suite AmexMexicoParserTest con factory smoke tests bidireccionales", "status": "completed" },
+    { "id": "F3-T2", "content": "Suite BBVAMexicoParserTest con factory smoke tests", "status": "completed" },
+    { "id": "F4-T1", "content": "Regenerar catálogos (currencyMeta MXN + update-supported-banks.sh) — 168→170 bancos, 26→27 países", "status": "completed" },
+    { "id": "F4-T2", "content": "Verificar render MXN en CurrencyFormatter (ya soportado: MX$ + locale es-MX)", "status": "completed" },
+    { "id": "F4-T3", "content": "Tester web: registry Routing.kt + samples cosechados — compilado verde (requirió publishToMavenLocal)", "status": "completed" },
+    { "id": "F4-T4", "content": "Verificación diferida contra SMS reales (pendiente de tráfico real en device)", "status": "pending" }
+  ],
+  "lastReport": "EJECUCIÓN COMPLETA: 13/14 tareas (93%). F2-T6 cerrada con instalación del APK debug (app-standard-arm64-v8a-debug.apk, adb install Success en R5CT422CGKH) y BankNotificationListenerService habilitado vía settings put (verificado en enabled_notification_listeners). Única pendiente: F4-T4 (re-verificación con SMS reales de transacción cuando haya tráfico — los samples sintéticos quedan marcados con TODO en las suites). Cero commits/push. Worktree: 8 archivos modificados + 5 nuevos + catálogos regenerados, todo listo para revisión y commit manual del usuario."
+}

@@ -19,6 +19,11 @@ Features to make PennyWise a complete budget tracking replacement for spreadshee
 - **Expanded Tools (F4-T1..T4)** — `budget_status`, `category_breakdown`, `recent_transactions`, `account_balance`, `spending_forecast`
 - **Mexico Bank Parsers** — BBVA México, AMEX México (with shared AMEX sender routing via Spanish content-gate)
 - **Model Lifecycle** — SHA-256 streaming verification on every load, RAM gate, dynamic token budget per model
+- **Savings Goals** — Named goals with target amount/deadline, linked to accounts, contributions/withdrawals linked to transactions
+- **Split Bills / Loan Shares** — Shared expense tracking with UPI payment requests, per-person loan shares
+- **Transaction Tags** — Free-text tags with many-to-many linking
+- **Webhooks** — Configurable sync to external endpoints with ranges, data types, headers, retry logic
+- **W0/W1 AI Contract Fixes** — INV-1/2/3 conversation invariants, anti-hallucination, narrated tool fallback
 
 ---
 
@@ -40,13 +45,6 @@ Features to make PennyWise a complete budget tracking replacement for spreadshee
 
 ## Phase 2: Goals & Forecasting
 
-### Savings Goals
-- Create named goals with target amount and deadline
-- Link goals to specific accounts
-- Visual progress tracking
-- Milestone celebrations
-- Examples: Emergency fund, Vacation, New phone
-
 ### Cash Flow Forecast
 - Predict future balance based on recurring income/expenses
 - "Will I have enough on the 25th?" view
@@ -56,12 +54,6 @@ Features to make PennyWise a complete budget tracking replacement for spreadshee
 ---
 
 ## Phase 3: Flexibility & Export
-
-### Custom Categories
-- User-created categories beyond the default set
-- Custom icons and colors
-- Merge/split existing categories
-- Category suggestions based on merchant patterns
 
 ### Data Export
 - CSV export (full transaction history)

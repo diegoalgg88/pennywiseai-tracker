@@ -53,3 +53,10 @@ data class QuickStats(
     val mostFrequentMerchant: String?,
     val mostFrequentMerchantCount: Int = 0
 )
+
+data class CategoryStats(
+    val average: BigDecimal,
+    val median: BigDecimal,
+    val topMerchants: List<String>,
+    val budgetPercentage: Float
+)

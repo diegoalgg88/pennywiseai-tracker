@@ -1,6 +1,6 @@
 # Bank SMS Support
 
-PennyWise parses bank SMS into transactions through a registry of dedicated parsers. As of October 2026 the registry holds **170 parsers covering 26 countries**.
+PennyWise parses bank SMS into transactions through a registry of dedicated parsers. As of November 2026 the registry holds **170+ parsers covering 26 countries**.
 
 This page explains how support works and where to look things up. It deliberately doesn't repeat the full bank list — that list is machine-generated and would drift the moment someone adds a parser without updating prose.
 
@@ -22,7 +22,7 @@ It regenerates the JSON, the README bank table, the Play listing copy, and copie
 2. `BankParserFactory.getParsers()` returns every parser whose `canHandle(sender)` matches the sender ID.
 3. Each candidate parser's `parse()` runs against the body in **registration order** until one returns a `ParsedTransaction`. Order matters — a broad matcher placed above a narrow one will swallow its messages.
 
-Parsers extend one of five base classes in `parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/`: `BankParser` (generic international), `BaseIndianBankParser`, `UAEBankParser`, `BaseIranianBankParser`, or `BaseThailandBankParser`. Pick the regional base when one exists; it carries currency handling and common patterns for that market.
+Parsers extend one of five base classes in `parser-core/src/main/kotlin/com/pennywiseai/parser/core/bank/`: `BankParser` (generic international), `BaseIndianBankParser`, `UAEBankParser`, `BaseIranianBankParser`, `BaseThailandBankParser`, or `BaseMexicoBankParser`. Pick the regional base when one exists; it carries currency handling and common patterns for that market.
 
 Full contributor walkthrough: [adding-bank-parsers.md](adding-bank-parsers.md). Test conventions: [parser-test-standards.md](parser-test-standards.md).
 
@@ -54,4 +54,4 @@ Short version: create a parser extending the right base class, implement `getBan
 
 ---
 
-*Last Updated: August 2026*
+*Last Updated: November 2026*

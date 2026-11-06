@@ -65,6 +65,48 @@ class PennyWiseTools : ToolSet {
     @Tool(description = "Forecast the user's total spending for this month based on the daily average so far.")
     fun spendingForecast(): String = ""
 
+    // --- READ-ONLY TOOLS (added 2026-11-05) ---
+
+    @Tool(description = "Search transactions with rich filters: date range, category, merchant, amount range, account, currency, type.")
+    fun searchTransactions(
+        @ToolParam(description = "Free-text query to match against merchant, notes, category") query: String,
+        @ToolParam(description = "Start date (ISO format: YYYY-MM-DD)") dateFrom: String,
+        @ToolParam(description = "End date (ISO format: YYYY-MM-DD)") dateTo: String,
+        @ToolParam(description = "Category name to filter by") category: String,
+        @ToolParam(description = "Merchant name to filter by") merchant: String,
+        @ToolParam(description = "Minimum amount") amountMin: Double,
+        @ToolParam(description = "Maximum amount") amountMax: Double,
+        @ToolParam(description = "Account alias or last 4 digits") account: String,
+        @ToolParam(description = "Currency code (ISO 4217)") currency: String,
+        @ToolParam(description = "Transaction type: EXPENSE or INCOME") type: String,
+        @ToolParam(description = "Maximum results to return, max 50; default 20") limit: Int
+    ): String = ""
+
+    @Tool(description = "Show spending trend over multiple months with weekly or monthly granularity.")
+    fun spendingTrend(
+        @ToolParam(description = "How many months back to analyze, 3-12; default 6") monthsBack: Int,
+        @ToolParam(description = "Granularity: MONTH or WEEK") granularity: String
+    ): String = ""
+
+    @Tool(description = "List subscriptions with their next billing date, amount, and status.")
+    fun subscriptionSummary(
+        @ToolParam(description = "Filter by status: ACTIVE, PAUSED, CANCELLED; empty for all") status: String
+    ): String = ""
+
+    @Tool(description = "Convert between currencies using current or custom exchange rates.")
+    fun exchangeRate(
+        @ToolParam(description = "Amount to convert") amount: Double,
+        @ToolParam(description = "Source currency code (ISO 4217)") fromCurrency: String,
+        @ToolParam(description = "Target currency code (ISO 4217)") toCurrency: String,
+        @ToolParam(description = "Use custom rate override if available; default true") useCustomRate: Boolean
+    ): String = ""
+
+    @Tool(description = "Advanced statistics for a category: average, median, top merchants, % vs budget.")
+    fun categoryStats(
+        @ToolParam(description = "Category name") category: String,
+        @ToolParam(description = "Months back to analyze, default 3") monthsBack: Int
+    ): String = ""
+
     companion object {
         const val ADD_TRANSACTION = "add_transaction"
         const val SPENDING_BY_CATEGORY = "spending_by_category"
@@ -76,5 +118,11 @@ class PennyWiseTools : ToolSet {
         const val RECENT_TRANSACTIONS = "recent_transactions"
         const val ACCOUNT_BALANCE = "account_balance"
         const val SPENDING_FORECAST = "spending_forecast"
+        // Read-only tools (added 2026-11-05)
+        const val SEARCH_TRANSACTIONS = "search_transactions"
+        const val SPENDING_TREND = "spending_trend"
+        const val SUBSCRIPTION_SUMMARY = "subscription_summary"
+        const val EXCHANGE_RATE = "exchange_rate"
+        const val CATEGORY_STATS = "category_stats"
     }
 }

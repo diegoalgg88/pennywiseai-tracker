@@ -7,8 +7,9 @@
 [![Privacy](https://img.shields.io/badge/AI-100%25_On--Device-FF6B6B)](https://ai.google.dev/edge)
 [![Downloads](https://img.shields.io/badge/Downloads-100+-green)](https://play.google.com/store/apps/details?id=com.pennywiseai.tracker)
 [![F-Droid](https://img.shields.io/f-droid/v/com.pennywiseai.tracker?color=1976d2)](https://f-droid.org/packages/com.pennywiseai.tracker/)
-[![GitHub release](https://img.shields.io/github/v/release/sarim2000/pennywiseai-tracker)](https://github.com/sarim2000/pennywiseai-tracker/releases)
+[![GitHub release](https://img.shields.io/github/v/release/sarim2000/pennywiseai-tracker?label=latest)](https://github.com/sarim2000/pennywiseai-tracker/releases)
 [![GitHub last commit](https://img.shields.io/github/last-commit/sarim2000/pennywiseai-tracker)](https://github.com/sarim2000/pennywiseai-tracker/commits)
+[![Version](https://img.shields.io/badge/version-2.24.0-blue)](https://github.com/sarim2000/pennywiseai-tracker/releases/tag/v2.24.0)
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2)](https://discord.gg/H3xWeMWjKQ)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
@@ -41,8 +42,8 @@ Your bank already texts you every transaction — PennyWise turns those SMS into
 ### How it works
 
 1. **Grant SMS permission** (read-only) — no account creation, no inbox changes, no messages sent.
-2. **PennyWise parses your transactions instantly** — extracts amount, merchant, category, and date. New SMS are detected in real-time.
-3. **Get insights** — analytics, budgets, subscriptions, and an on-device AI assistant you can ask anything.
+2. **PennyWise parses your transactions instantly** — extracts amount, merchant, category, and date. New SMS are detected in real-time. <!-- BANKS_SUMMARY -->175 banks across 27 countries<!-- /BANKS_SUMMARY --> supported (including Telcel México).
+3. **Get insights** — analytics, budgets, subscriptions, savings goals, split bills, transaction tags, and an on-device AI assistant you can ask anything.
 
 📖 **New here?** The [user guide](https://pennywise.zynth.dev/guide) walks through every feature step by step, with screenshots.
 
@@ -56,24 +57,28 @@ Your bank already texts you every transaction — PennyWise turns those SMS into
 
 **Core Features**
 
-- **🤖 Smart SMS Parsing** — <!-- BANKS_SUMMARY -->172 banks across 26 countries<!-- /BANKS_SUMMARY --> with real-time detection of incoming SMS
-- **🌍 Multi-Currency** — Native support for INR, USD, AED, THB, NPR, ETB, and more with exchange rate management
-- **💬 On-Device AI Assistant** — Ask "What did I spend on food?" — powered by Qwen 2.5, runs entirely on your phone
-- **🏷️ Auto-Categorization & Smart Rules** — Pattern-based rules that auto-categorize transactions
-- **💰 Budget Tracking** — Multiple budget groups (Limit/Target/Expected types), daily allowance, category-level budgets
+- **🤖 Smart SMS Parsing** — **170+ banks across 26 countries** with real-time detection of incoming SMS
+- **🌍 Multi-Currency** — Native support for INR, USD, AED, THB, NPR, ETB, and more with exchange rate management + custom rate overrides
+- **💬 On-Device AI Assistant** — Ask "What did I spend on food?" — powered by Qwen 2.5, Gemma 4, Gemma 3n, or custom HF models, runs entirely on your phone. **Vision support (Gemma 3n E2B):** attach receipt images for OCR extraction with vision backend fixed to run on CPU.
+- **🏷️ Auto-Categorization & Smart Rules** — Pattern-based rules that auto-categorize transactions (unlimited with Pro)
+- **💰 Budget Tracking** — Multiple budget groups (Limit/Target/Expected types), daily allowance, category-level budgets, weekly/monthly/custom periods
 - **📊 Analytics & Charts** — Bar charts, line trends, heatmaps, category breakdowns, top merchants, custom date ranges
-- **🏦 Multi-Account & Balance Tracking** — Track multiple bank accounts with live balance from SMS and balance history
-- **🔄 Subscription Detection** — Automatic recurring payment detection with due date alerts
-- **🎨 Custom Categories** — Create your own with custom colors and icons
+- **🏦 Multi-Account & Balance Tracking** — Track multiple bank accounts with live balance from SMS, balance history, aliases, low-balance alerts, and account merge
+- **🔄 Subscription Detection** — Automatic recurring payment detection with due date alerts, billing cycles, income/expense direction
+- **🎨 Custom Categories** — Create your own with custom colors, emoji icons, and sub-categories
 
 **More Features**
 
+- **🎯 Savings Goals** — Create named goals with targets and deadlines, link to accounts, track contributions/withdrawals
+- **✂️ Split Bills** — Shared expense tracking with UPI payment requests, loan shares per person
+- **🏷️ Transaction Tags** — Free-text tags with many-to-many linking for flexible organization
+- **🌐 Webhooks** — Sync data to external endpoints with configurable ranges, types, and headers
 - **🔐 Biometric App Lock** — Fingerprint/face unlock with configurable timeout
-- **📱 Home Screen Widgets** — Budget progress and recent transactions at a glance
-- **📤 Data Export & Backup** — CSV export for taxes, full backup/restore (.pennywisebackup)
-- **🎭 Material You Theming** — Dynamic colors, multiple cover styles (Aurora, Gradient, Wave), light/dark/system themes
-- **✏️ Manual Transactions** — Add and edit transactions manually
-- **🔍 Search & Filters** — Filter by category, merchant, period, currency, transaction type
+- **📱 Home Screen Widgets** — Budget progress, category pie, recent transactions, spending summary, goals (multiple sizes)
+- **📤 Data Export & Backup** — CSV export for taxes, full backup/restore (.pennywisebackup), scheduled folder backups
+- **🎭 Material You Theming** — Dynamic colors, multiple cover styles (Aurora, Gradient, Wave), light/dark/AMOLED themes, custom fonts
+- **✏️ Manual Transactions** — Add and edit transactions with receipts (camera/gallery)
+- **🔍 Search & Filters** — Filter by category, merchant, period, currency, transaction type, tags, accounts
 - **🎯 Guided Onboarding** — Spotlight tutorial for first-time users
 
 ### Smart Rules Engine
@@ -123,7 +128,7 @@ Conditions can be combined with **AND** / **OR** logic, and multiple conditions 
 ## Supported Banks & Countries
 
 <!-- SUPPORTED_BANKS:START (generated by scripts/update-supported-banks.sh — do not edit by hand) -->
-Supporting **172 banks & services** across **26 countries** with **multi-currency** capabilities:
+Supporting **175 banks & services** across **27 countries** with **multi-currency** capabilities:
 
 ### 🇮🇳 India — INR ₹ (57)
 **AU Small Finance Bank**, **Airtel Payments Bank**, **Amazon Pay**, **American Express**, **Axis Bank**, **Bandhan Bank**, **Bank of Baroda**, **Bank of India**, **CRED**, **Canara Bank**, **Cashfree**, **Central Bank of India**, **City Union Bank**, **DBS Bank**, **Department of Post**, **Dhanlaxmi Bank**, **Equitas Small Finance Bank**, **Federal Bank**, **Greater Bank**, **HDFC Bank**, **HDFC Mutual Fund**, **HSBC Bank**, **ICICI Bank**, **IDBI Bank**, **IDFC First Bank**, **India Post Payments Bank**, **Indian Bank**, **Indian Overseas Bank**, **IndusInd Bank**, **JK Bank**, **Jana Small Finance Bank**, **Jio Payments Bank**, **JioPay**, **Jupiter**, **Karnataka Bank**, **Kerala Bank**, **Kerala Gramin Bank**, **Kotak Bank**, **LazyPay**, **NSDL Payments Bank**, **Navi Mutual Fund**, **OneCard**, **Pluxee**, **Punjab & Sind Bank**, **Punjab National Bank**, **SVC Co-operative Bank**, **Saraswat Co-operative Bank**, **Slice**, **South Indian Bank**, **Standard Chartered Bank**, **State Bank of India**, **Suryoday Small Finance Bank**, **Tamilnad Mercantile Bank**, **UCO Bank**, **Union Bank of India**, **Utkarsh Bank**, **Yes Bank**
@@ -172,6 +177,9 @@ Supporting **172 banks & services** across **26 countries** with **multi-currenc
 
 ### 🇸🇻 El Salvador — USD $ (3)
 **Banco Agricola**, **Banco Cuscatlan**, **Banco Promerica**
+
+### 🇲🇽 Mexico — MXN $ (3)
+**American Express Mexico**, **BBVA Mexico**, **Telcel México**
 
 ### 🇪🇺 Eurozone — EUR € (2)
 **BPCE**, **Sparkasse Rhein-Maas**
@@ -306,7 +314,7 @@ adb install app/build/outputs/apk/standard/debug/app-standard-universal-debug.ap
   <img src="https://skillicons.dev/icons?i=hilt,room,coroutines" />
 </p>
 
-**Architecture**: MVVM • Jetpack Compose • Room • Coroutines • Hilt • Google AI Edge (on-device LLM) • Material Design 3
+**Architecture**: MVVM • Jetpack Compose • Material 3 Expressive • Room • Coroutines • Hilt • Google AI Edge LiteRT-LM (on-device LLM: Qwen 2.5, Gemma 4 E2B, Gemma 3n E2B, Whisper, Custom HF) • WorkManager • KSP • Ktor
 
 ## PennyWise Pro
 
@@ -316,6 +324,22 @@ Pro unlocks unlimited custom rules, unlimited PDF statement imports, unlimited C
 
 - **Google Play**: in-app purchase is currently unavailable (payments-profile verification on Google's side). Existing Play purchases keep working; new buyers use the website key.
 - **F-Droid / IzzyOnDroid**: every Pro feature is already unlocked, free. Buying a key there is purely a way to support the project (and it works on the Play build too).
+
+## AI Access (Pro)
+
+Connect **Claude** or **ChatGPT** to your PennyWise data — no server ever sees your transactions.
+
+1. **Settings → Connect Claude / ChatGPT** on your phone
+2. In the AI app, add the connector URL: `https://ai.pennywise.zynth.dev/mcp`
+3. Tap **Get pairing code** in PennyWise and enter the 6-digit code
+4. Start an **AI session** (15/30/60 min) or use the Quick Settings tile
+5. Ask the AI anything: "What did I spend on food last month?", "Which subscriptions renew this week?"
+
+**What AI apps can read** (read-only, via MCP): transactions (date, merchant, category, type, amount, currency, bank, last-4 of account), account balances, active subscriptions — across all profiles and history. **Never exposed**: SMS text, full account numbers, UPI/ref numbers, notes, receipts, budgets, goals, loans, settings.
+
+**Dashboard on a computer**: Open `https://ai.pennywise.zynth.dev/dashboard/`, enter a pairing code, and view charts, full transaction history with filters/CSV download, accounts, and subscriptions.
+
+**Use your own relay**: Run the open-source relay on your Cloudflare account ([relay/README.md](../relay/README.md#self-hosting)), then enter its URL in **Settings → Use your own relay**.
 
 ## Community & Support
 

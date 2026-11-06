@@ -1,18 +1,18 @@
 # Deep-dive 16 — Room: schema, migraciones y DAOs
 
-> Alcance: la base de datos Room de la app — el catálogo de entidades, la versión de schema, el sistema de migraciones (auto vs manual, la regla `ALL_MIGRATIONS`, compatibilidad SQLite 3.18), los DAOs, y el testing de migraciones. Basado en `docs\database-migrations.md` (contrato oficial) verificado contra `PennyWiseDatabase.kt` y `DatabaseModule.kt`. Fecha de análisis: 2026-10-24. Paths bajo `C:\Users\DiegoGzz\Documents\Programas\My-Projects\PennyWiseAI-tracker\`.
+> Alcance: la base de datos Room de la app — el catálogo de entidades, la versión de schema, el sistema de migraciones (auto vs manual, la regla `ALL_MIGRATIONS`, compatibilidad SQLite 3.18), los DAOs, y el testing de migraciones. Basado en `docs\database-migrations.md` (contrato oficial) verificado contra `PennyWiseDatabase.kt` y `DatabaseModule.kt`. Fecha de análisis: 2026-11-05. Paths bajo `C:\Users\DiegoGzz\Documents\Programas\My-Projects\PennyWiseAI-tracker\`.
 
 ---
 
 ## 1. Resumen ejecutivo
 
-La DB está en **schema v58** (constante `SCHEMA_VERSION`, 23 entidades registradas en `@Database`). **Toda migración — auto o manual — vive en un solo archivo** (`PennyWiseDatabase.kt`) y las manuales se registran en **un único array `ALL_MIGRATIONS`** consumido por los DOS builders (Hilt + fallback) — la regla existe por un crash real: el builder de Hilt llevaba su propia lista, omitió `MIGRATION_47_48`, y los installs en v47 crasheaban al actualizar a v48. **No hay `fallbackToDestructiveMigration()`** — una migración faltante falla ruidosamente en dev en vez de borrar silenciosamente el historial del usuario. La trampa operativa más grande: **las migraciones corren en el SQLite del teléfono** (minSdk 26 = SQLite 3.18), no en el de la JVM — sintaxis válida en todos los tests puede tumbar cada launch en Android ≤13 (#922).
+La DB está en **schema v67** (constante `SCHEMA_VERSION`, **27+ entidades** registradas en `@Database`). **Toda migración — auto o manual — vive en un solo archivo** (`PennyWiseDatabase.kt`) y las manuales se registran en **un único array `ALL_MIGRATIONS`** consumido por los DOS builders (Hilt + fallback) — la regla existe por un crash real: el builder de Hilt llevaba su propia lista, omitió `MIGRATION_47_48`, y los installs en v47 crasheaban al actualizar a v48. **No hay `fallbackToDestructiveMigration()`** — una migración faltante falla ruidosamente en dev en vez de borrar silenciosamente el historial del usuario. La trampa operativa más grande: **las migraciones corren en el SQLite del teléfono** (minSdk 26 = SQLite 3.18), no en el de la JVM — sintaxis válida en todos los tests puede tumbar cada launch en Android ≤13 (#922).
 
 ---
 
 ## 2. Catálogo de entidades (verificado contra los imports de `PennyWiseDatabase.kt:36-69`)
 
-23 tablas registradas en `@Database(entities = [...])`, `data\database\entity\`:
+**27+ tablas** registradas en `@Database(entities = [...])`, `data\database\entity\`:
 
 | Grupo | Entidades |
 |---|---|
@@ -26,9 +26,9 @@ La DB está en **schema v58** (constante `SCHEMA_VERSION`, 23 entidades registra
 | Web | `WebhookProfileEntity`, `WebhookLogEntity`, `WebhookCursorEntity`, `WebhookDeliveredTransactionEntity` |
 | Tipo | `ExchangeRateEntity`, `CardEntity` |
 
-(Nota: el `@Database` registra las tablas Room; `MerchantAliasEntity` y `MerchantMappingEntity` llegaron por auto-migration v55→56 y columnas posteriores — el doc oficial dice "23 entities" contando las que migran activamente; los imports listan más porque incluye relations. La fuente de verdad del conteo es el schema JSON exportado.)
+(Nota: el `@Database` registra las tablas Room; las entities recientes incluyen `GoalEntity`, `GoalContributionEntity` (v66), `LoanShareEntity` (v67), `Webhook*` entities (v62+), y `TransactionTagCrossRef` (v58). La fuente de verdad del conteo es el schema JSON exportado.)
 
-**DAOs** (`data\database\dao\`, provistos por `di\DatabaseModule.kt:18-42`): `TransactionDao`, `AccountBalanceDao`, `CategoryDao`, `ProfileDao`, `BankNotificationDao`, `BudgetDao`, `BudgetSnapshotDao`, `CardDao`, `ChatDao`, `ExchangeRateDao`, `LoanDao`, `TransactionGroupDao`, `MerchantMappingDao`, `MerchantAliasDao`, `RuleApplicationDao`, `RecurringTransactionDao`, `RuleDao`, `SubscriptionDao`, `TagDao`, `TransactionSplitDao`, `UnrecognizedSmsDao`, `WebhookProfileDao`, `WebhookLogDao`, `WebhookCursorDao`, `GoalDao`. Cada DAO es `@Provides` sobre el singleton de `PennyWiseDatabase`.
+**DAOs** (`data\database\dao\`, provistos por `di\DatabaseModule.kt`): `TransactionDao`, `AccountBalanceDao`, `CategoryDao`, `ProfileDao`, `BankNotificationDao`, `BudgetDao`, `BudgetSnapshotDao`, `CardDao`, `ChatDao`, `ExchangeRateDao`, `LoanDao`, `TransactionGroupDao`, `MerchantMappingDao`, `MerchantAliasDao`, `RuleApplicationDao`, `RecurringTransactionDao`, `RuleDao`, `SubscriptionDao`, `TagDao`, `TransactionSplitDao`, `UnrecognizedSmsDao`, `WebhookProfileDao`, `WebhookLogDao`, `WebhookCursorDao`, `GoalDao`, `GoalContributionDao`. Cada DAO es `@Provides` sobre el singleton de `PennyWiseDatabase`.
 
 ## 3. La regla `ALL_MIGRATIONS`
 

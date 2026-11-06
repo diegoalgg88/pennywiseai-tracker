@@ -44,6 +44,11 @@ PennyWise follows modern Android architecture guidelines with MVVM pattern, Clea
 - presentation/home/HomeViewModel.kt
 - ui/viewmodel/ThemeViewModel.kt
 - UiState data classes
+- presentation/goals/ (Goals, GoalDetail, CreateGoal)
+- presentation/loans/ (LoanShareEntity for split bills)
+- presentation/categories/ (Custom categories with emoji, sub-categories)
+- ui/screens/settings/webhooks/ (Webhook profiles, logs, cursors)
+- ui/screens/settings/aiaccess/ (AI Access connection, relay config)
 ```
 
 ### Domain Layer (Business Logic)
@@ -64,6 +69,9 @@ PennyWise follows modern Android architecture guidelines with MVVM pattern, Clea
 - ApplyRulesToPastTransactionsUseCase.kt
 - MarkSubscriptionPaidUseCase.kt
 - domain/service/LlmService.kt (on-device AI interface)
+- domain/service/AiContextRepository.kt (AI context for tools)
+- presentation/goals/usecase/ (Goal use cases)
+- presentation/loans/usecase/ (Loan share use cases)
 ```
 
 ### Data Layer (Data Sources)
@@ -84,6 +92,11 @@ PennyWise follows modern Android architecture guidelines with MVVM pattern, Clea
 - TransactionDao.kt
 - data/manager/SmsTransactionProcessor.kt (orchestrates SMS → parser → database)
 - data/repository/LlmRepository.kt (backs LlmService with the on-device model)
+- data/repository/AiContextRepository.kt (context for AI tools)
+- data/repository/GoalRepository.kt
+- data/repository/LoanRepository.kt
+- data/repository/TagRepository.kt
+- data/repository/WebhookRepository.kt
 - receiver/BankNotificationListenerService.kt (notification-to-SMS parser bridge for whitelisted bank apps)
 ```
 
@@ -99,19 +112,19 @@ app/
 │   ├── presentation/            # Feature screens + ViewModels (home, accounts,
 │   │   │                        #   add, transactions, budgetgroups, categories,
 │   │   │                        #   subscriptions, loans, groups, paywall, share,
-│   │   │                        #   statement, exchangerates, common; also a
-│   │   │                        #   navigation/ subpackage for feature routes)
+│   │   │                        #   statement, exchangerates, common, goals, tags,
+│   │   │                        #   webhooks, aiaccess; also a navigation/ subpackage)
 │   ├── ui/                      # Shared components, theme, ViewModels
 │   │   ├── components/          # Reusable Compose components
 │   │   ├── theme/               # Design system tokens
 │   │   ├── viewmodel/           # App-level ViewModels (theme, app lock, ...)
 │   │   └── screens/             # analytics, chat, onboarding, rules,
-│   │                            #   settings, unrecognized
+│   │                            #   settings, unrecognized, webhooks, aiaccess
 │   ├── navigation/              # Navigation graph
 │   ├── domain/                  # Business logic
 │   │   ├── model/
 │   │   ├── usecase/
-│   │   ├── service/             # LlmService and friends
+│   │   ├── service/             # LlmService, AiContextRepository and friends
 │   │   └── repository/          # Repository interfaces
 │   ├── data/                    # Data Layer
 │   │   ├── database/            # Room database, DAOs, entities
@@ -120,17 +133,18 @@ app/
 │   │   ├── preferences/         # DataStore-backed settings
 │   │   ├── currency/ backup/ contacts/
 │   │   └── mapper/
-│   ├── di/                      # Hilt modules (DatabaseModule, etc.)
+│   ├── di/                      # Hilt modules (DatabaseModule, LlmModule, etc.)
 │   ├── receiver/                # SMS / notification entry points
-│   ├── worker/                  # WorkManager jobs (SMS scan retry, scheduled backups)
+│   ├── worker/                  # WorkManager jobs (SMS scan retry, scheduled backups, recurring transactions, webhook sync)
 │   ├── widget/                  # Home-screen widgets
 │   ├── billing/                 # Play Billing + FreeTierLimits
-│   ├── backup/ core/ initializer/ utils/
+│   ├── backup/ core/ initializer/ utils/ aiaccess/
 └── build.gradle.kts             # Flavors: standard, fdroid
 parser-core/                     # Bank SMS parsers (Kotlin Multiplatform)
 shared/                          # KMP code shared with iOS
 iosApp/                          # Swift iOS app
 pennywise-web/                   # Web deployment (Cloudflare Worker + server/)
+relay/                           # Cloudflare Worker MCP relay (Durable Object)
 ```
 
 ## Data Flow Example
@@ -261,7 +275,7 @@ Semantic blocks appended to the on-device model's system prompt, separate from u
 | SettingsViewModel | `SettingsViewModel.kt:154, 496-500` | Exposes flow + setter to UI |
 | Settings UI | `SettingsScreen.kt:1072-1105` | Multiline field (4 lines, ~200 tokens hint) under Experimental |
 
-Budget: Qwen 2560 token context, ~2000 budget, ~200 reserved for additions. Tests: `ChatPromptBudgetTest` (3 new tests).
+Budget: Qwen 2560 token context, ~2000 budget, ~200 reserved for additions. Tests: `ChatPromptBudgetTest` (3 new tests). **Live update (W2 2026-11-04):** `LlmRepository.updateSystemPrompt()` updates the Room `isSystemPrompt=1` row and closes the conversation so it rebuilds with fresh data on next message — no "Clear chat" required.
 
 ### Custom HuggingFace Model — Experimental (F8-T2)
 User-configurable `.litertlm` model from HuggingFace with pre-download validation.
@@ -277,6 +291,37 @@ User-configurable `.litertlm` model from HuggingFace with pre-download validatio
 | Settings UI | `SettingsScreen.kt:983-1335` | Experimental section with 7 fields + Validate/Save/Clear buttons |
 
 Fallback: validation fail or RAM gate fail → built-in Qwen 1.5B.
+
+## Core Features (Post-F8)
+
+### Savings Goals (#914)
+- **Entities:** `GoalEntity`, `GoalContributionEntity` (Room v66+)
+- **UI:** Create named goals with target amount/deadline, link to accounts, track contributions/withdrawals linked to transactions
+- **Backup:** Included in FULL backups, dedup by `uid` on MERGE
+- **DAOs:** `GoalDao`, `GoalContributionDao`
+
+### Split Bills / Loan Shares (#346)
+- **Entity:** `LoanShareEntity` (Room v67+), `transactions.lent_shares_total` column
+- **UI:** Shared expense tracking with UPI payment requests, per-person loan shares
+- **Backup:** FULL only, shares restored onto loans inserted by same import
+- **DAOs:** `LoanDao` extended, `TransactionSplitDao`
+
+### Transaction Tags
+- **Entities:** `TagEntity`, `TransactionTagCrossRef` (Room v58+)
+- **UI:** Free-text tags with many-to-many linking, tag management screen
+- **Backup:** FULL/ANONYMOUS, dedup by name on MERGE
+- **DAOs:** `TagDao`
+
+### Webhooks
+- **Entities:** `WebhookProfileEntity`, `WebhookLogEntity`, `WebhookCursorEntity`, `WebhookDeliveredTransactionEntity` (Room v62+)
+- **UI:** Profiles with configurable ranges, data types, headers; sync logs; retry logic
+- **Worker:** `WebhookSyncWorker` (1-24h intervals, up to 3 retries)
+- **DAOs:** `WebhookProfileDao`, `WebhookLogDao`, `WebhookCursorDao`, `WebhookDeliveredTransactionDao`
+
+### Mexico Bank Parsers (W21)
+- **Parsers:** `BBVAMexicoParser` (sender `266845`), `AmexMexicoParser` (sender `AMEX` exact), `TelcelMexicoParser` (sender `TELCEL`) — added 2026-11-05
+- **Base class:** `BaseMexicoBankParser` for MXN amounts and Mexican SMS formats
+- **Shared AMEX sender routing** via Spanish content-gate
 
 ## On-Device AI Chat (LiteRT-LM) — Current Capabilities
 
@@ -324,6 +369,13 @@ Fallback: validation fail or RAM gate fail → built-in Qwen 1.5B.
 - Gemma: 8192 context - 1536 reserved = **6640** chat budget
 - `fitsChatBudget()` throws "Chat memory is full" if exceeded
 - `chatBudget(spec)` dynamic per model
+
+### W0/W1 Contract Fixes (2026-11-04)
+- **INV-1:** Non-system messages in Room alternate user/assistant, end in assistant when idle
+- **INV-2:** Conversation created/replaced **never** includes the message being sent in `initialMessages`
+- **INV-3:** On failure/cancel, close engine conversation so next send rebuilds from Room
+- **Anti-hallucination:** `CLAIMS_A_CHANGE` regex catches narrated mutations, adds disclaimer
+- **Narrated tool fallback:** `NARRATED_TOOL` regex converts bare tool names to `ToolCall`
 
 ## Migration & Evolution
 

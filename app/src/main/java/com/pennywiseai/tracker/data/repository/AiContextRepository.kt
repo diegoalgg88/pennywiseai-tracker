@@ -6,6 +6,7 @@ import com.pennywiseai.tracker.data.database.entity.SubscriptionState
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.model.*
+import com.pennywiseai.tracker.data.repository.BudgetRepository
 import com.pennywiseai.tracker.data.currency.CurrencyConversionService
 import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
 import com.pennywiseai.tracker.utils.forTotals
@@ -28,7 +29,8 @@ class AiContextRepository @Inject constructor(
     private val transactionDao: TransactionDao,
     private val subscriptionDao: SubscriptionDao,
     private val userPreferencesRepository: UserPreferencesRepository,
-    private val currencyConversionService: CurrencyConversionService
+    private val currencyConversionService: CurrencyConversionService,
+    private val budgetRepository: BudgetRepository
 ) {
     
     /**
@@ -269,6 +271,110 @@ class AiContextRepository @Inject constructor(
             largestExpenseThisMonth = largestExpense,
             mostFrequentMerchant = mostFrequent?.key,
             mostFrequentMerchantCount = mostFrequent?.value ?: 0
+        )
+    }
+
+    /**
+     * Spending trend over multiple months for the spending_trend tool.
+     * Returns list of (periodLabel, amountInBaseCurrency).
+     */
+    suspend fun getSpendingTrend(monthsBack: Int, isWeekly: Boolean): List<Pair<String, BigDecimal>> {
+        val baseCurrency = userPreferencesRepository.baseCurrency.first()
+        val currentDate = LocalDate.now()
+        val trend = mutableListOf<Pair<String, BigDecimal>>()
+
+        for (i in 0 until monthsBack) {
+            val yearMonth = YearMonth.from(currentDate).minusMonths(i.toLong())
+            val startOfMonth = yearMonth.atDay(1)
+            val endOfMonth = yearMonth.atEndOfMonth()
+
+            val transactions = transactionDao.getTransactionsBetweenDatesList(
+                startOfMonth.atStartOfDay(),
+                endOfMonth.atTime(23, 59, 59)
+            ).forTotals()
+
+            if (isWeekly) {
+                // Group by week within the month
+                val weeks = mutableMapOf<Int, MutableList<TransactionEntity>>()
+                transactions.filter { it.transactionType == TransactionType.EXPENSE }.forEach { tx ->
+                    val weekOfMonth = ((tx.dateTime.toLocalDate().dayOfMonth - 1) / 7) + 1
+                    weeks.getOrPut(weekOfMonth) { mutableListOf() }.add(tx)
+                }
+                weeks.keys.sorted().forEach { week ->
+                    val weekTxns = weeks[week]!!
+                    val weekTotal = weekTxns
+                        .mapNotNull { currencyConversionService.convertAmountOrNull(it.amount, it.currency, baseCurrency) }
+                        .fold(BigDecimal.ZERO) { acc, a -> acc.add(a) }
+                    val label = "${yearMonth.month}/${yearMonth.year} W$week"
+                    trend.add(label to weekTotal)
+                }
+            } else {
+                val monthTotal = transactions
+                    .filter { it.transactionType == TransactionType.EXPENSE }
+                    .mapNotNull { currencyConversionService.convertAmountOrNull(it.amount, it.currency, baseCurrency) }
+                    .fold(BigDecimal.ZERO) { acc, a -> acc.add(a) }
+                val label = "${yearMonth.month}/${yearMonth.year}"
+                trend.add(label to monthTotal)
+            }
+        }
+
+        return trend.reversed() // chronological order
+    }
+
+    /**
+     * Advanced stats for a category for the category_stats tool.
+     * Returns average, median, top merchants, and % vs budget.
+     */
+    suspend fun getCategoryStats(category: String, monthsBack: Int): CategoryStats? {
+        val baseCurrency = userPreferencesRepository.baseCurrency.first()
+        val currentDate = LocalDate.now()
+        val startDate = currentDate.minusMonths(monthsBack.toLong())
+
+        val transactions = transactionDao.getTransactionsBetweenDatesList(
+            startDate.atStartOfDay(),
+            currentDate.atTime(23, 59, 59)
+        ).forTotals()
+
+        val catTxns = transactions
+            .filter { it.category?.equals(category, ignoreCase = true) == true && it.transactionType == TransactionType.EXPENSE }
+            .mapNotNull { currencyConversionService.convertAmountOrNull(it.amount, it.currency, baseCurrency) }
+            .toList()
+
+        if (catTxns.isEmpty()) return null
+
+        val sorted = catTxns.sorted()
+        val average = sorted.fold(BigDecimal.ZERO) { acc, a -> acc.add(a) } / BigDecimal(sorted.size)
+        val median = sorted[sorted.size / 2]
+
+        // Top merchants
+        val merchantCounts = transactions
+            .filter { it.category?.equals(category, ignoreCase = true) == true && it.transactionType == TransactionType.EXPENSE }
+            .groupingBy { it.merchantName }
+            .eachCount()
+            .toList()
+            .sortedByDescending { it.second }
+            .take(5)
+            .map { it.first }
+
+        // Budget percentage
+        val budgetPct = try {
+            val budgets = budgetRepository.getActiveBudgets().first()
+            val budget = budgets.firstOrNull { it.name.equals(category, ignoreCase = true) }
+            budget?.let { b ->
+                val spend = budgetRepository.getBudgetSpending(b).first()
+                if (b.limitAmount > BigDecimal.ZERO) {
+                    spend.totalSpent.divide(b.limitAmount, 4, RoundingMode.HALF_UP).multiply(BigDecimal(100)).toFloat()
+                } else 0f
+            } ?: 0f
+        } catch (e: Exception) {
+            0f
+        }
+
+        return CategoryStats(
+            average = average,
+            median = median,
+            topMerchants = merchantCounts,
+            budgetPercentage = budgetPct
         )
     }
 }

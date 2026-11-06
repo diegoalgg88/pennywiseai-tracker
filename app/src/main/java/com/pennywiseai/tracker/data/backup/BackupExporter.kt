@@ -33,7 +33,7 @@ class BackupExporter @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val ignoredAccountsStore: IgnoredAccountsStore
 ) {
-    
+
     /**
      * Export complete app data to a backup file
      */
@@ -59,7 +59,7 @@ class BackupExporter @Inject constructor(
         }
     }
 
-    
+
     /**
      * Create backup data structure
      */
@@ -92,7 +92,7 @@ class BackupExporter @Inject constructor(
         val goals = database.goalDao().getAllGoals()
         val goalContributions = database.goalDao().getAllContributions()
         val loanShares = database.loanDao().getAllShares()
-        
+
         // Get preferences from repository
         val prefs = userPreferencesRepository.userPreferences.first()
         val systemPrompt = userPreferencesRepository.getSystemPrompt().first()
@@ -111,7 +111,7 @@ class BackupExporter @Inject constructor(
         val lastScanPeriod = userPreferencesRepository.getLastScanPeriod().first()
         val smsScanUseCustomDate = userPreferencesRepository.getSmsScanUseCustomDate()
         val smsScanCustomDate = userPreferencesRepository.getSmsScanCustomDate()
-        
+
         // Calculate statistics
         val dateRange = if (transactions.isNotEmpty()) {
             val sorted = transactions.sortedBy { it.dateTime }
@@ -120,7 +120,7 @@ class BackupExporter @Inject constructor(
                 latest = sorted.last().dateTime.toString()
             )
         } else null
-        
+
         // Apply privacy settings if needed
         val finalTransactions = when (privacy) {
             ExportPrivacy.FULL -> transactions
@@ -135,7 +135,7 @@ class BackupExporter @Inject constructor(
                 accountNumber = "****"
             )}
         }
-        
+
         // Determine what's actually exported based on privacy mode
         // Rules are included in all modes as they contain no PII
         val exportedRules = rules
@@ -165,7 +165,7 @@ class BackupExporter @Inject constructor(
         // on FULL only — same treatment as loans / other relational tables.
         val exportedRecurringTransactions = if (privacy == ExportPrivacy.FULL) recurringTransactions else emptyList()
         // Goals carry user-written names and notes, and contributions point at
-        // transaction ids: FULL only, like loans / recurring templates (#914).
+        // transaction ids: FULL only, like loans / other relational tables (#914).
         val exportedGoals = if (privacy == ExportPrivacy.FULL) goals else emptyList()
         val exportedGoalContributions = if (privacy == ExportPrivacy.FULL) goalContributions else emptyList()
         // Split-bill shares (#346) point at loans and transaction ids: FULL only, like loans.
@@ -290,7 +290,7 @@ class BackupExporter @Inject constructor(
             receipts = exportedReceipts
         )
     }
-    
+
     /**
      * Create backup file in cache directory
      */
@@ -299,7 +299,7 @@ class BackupExporter @Inject constructor(
         if (!exportDir.exists()) {
             exportDir.mkdirs()
         }
-        
+
         val timestamp = LocalDateTime.now().format(
             DateTimeFormatter.ofPattern("yyyy_MM_dd_HHmmss")
         )
