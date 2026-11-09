@@ -188,7 +188,7 @@ class RuleEngine @Inject constructor(
         return when (field) {
             TransactionField.AMOUNT -> transaction.amount.toString()
             TransactionField.TYPE -> transaction.transactionType.name
-            TransactionField.CATEGORY -> transaction.category ?: ""
+            TransactionField.CATEGORY -> transaction.category
             TransactionField.MERCHANT -> transaction.merchantName
             TransactionField.NARRATION -> transaction.description ?: ""
             TransactionField.SMS_TEXT -> smsText ?: ""
@@ -281,7 +281,7 @@ class RuleEngine @Inject constructor(
                 val newValue = when (action.actionType) {
                     ActionType.SET -> action.value
                     ActionType.CLEAR -> ""
-                    else -> transaction.category ?: ""
+                    else -> transaction.category
                 }
                 transaction.copy(category = newValue) to newValue
             }

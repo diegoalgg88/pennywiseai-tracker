@@ -3,6 +3,7 @@ package com.pennywiseai.tracker.domain.model.rule
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.domain.service.RuleEngine
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -23,7 +24,7 @@ import java.time.LocalDateTime
  */
 class RuleActionExecutabilityTest {
 
-    private val engine = RuleEngine()
+    private val engine = RuleEngine(mockk(relaxed = true))
 
     private val transaction = TransactionEntity(
         amount = BigDecimal("100.00"),

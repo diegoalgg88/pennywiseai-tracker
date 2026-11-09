@@ -3,9 +3,6 @@ package com.pennywiseai.parser.core.bank
 import com.pennywiseai.parser.core.ParsedTransaction
 import com.pennywiseai.parser.core.TransactionType
 import java.math.BigDecimal
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * Parser para SMS de Telcel México (carrier de telefonía móvil).
@@ -25,7 +22,7 @@ class TelcelMexicoParser : BaseMexicoBankParser() {
 
     override fun getBankName() = "Telcel México"
 
-    override fun canHandle(sender: String): Boolean = sender.uppercase(Locale.ROOT) == "TELCEL"
+    override fun canHandle(sender: String): Boolean = sender.uppercase() == "TELCEL"
 
     override fun extractAmount(message: String): BigDecimal? {
         // Primero intenta patrón específico de Telcel: "por $XXX.XX" o "paga $XXX.XX"
@@ -35,7 +32,7 @@ class TelcelMexicoParser : BaseMexicoBankParser() {
     }
 
     override fun extractTransactionType(message: String): TransactionType? {
-        val lower = message.lowercase(Locale.ROOT)
+        val lower = message.lowercase()
 
         // Telcel son notificaciones de facturación/recordatorio → BALANCE_UPDATE
         // No movieron dinero (el #2 dice "no pudo procesarse")
@@ -51,7 +48,7 @@ class TelcelMexicoParser : BaseMexicoBankParser() {
     override fun extractAccountLast4(message: String): String? = null
 
     override fun isTransactionMessage(message: String): Boolean {
-        val lower = message.lowercase(Locale.ROOT)
+        val lower = message.lowercase()
 
         // Solo aceptar si contiene marcadores de facturación Telcel
         if (TELCEL_BILL_MARKERS.any { lower.contains(it) }) return true

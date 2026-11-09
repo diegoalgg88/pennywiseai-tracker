@@ -10,6 +10,7 @@ import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.model.ChatContext
 import com.pennywiseai.tracker.data.preferences.IgnoredAccountsStore
 import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import com.pennywiseai.tracker.core.ChatModelSpec
 import com.pennywiseai.tracker.core.ChatModels
 import com.pennywiseai.tracker.core.ThinkingConfig
 import com.pennywiseai.tracker.domain.service.LlmService
@@ -35,6 +36,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.pennywiseai.tracker.BuildConfig
 import com.pennywiseai.tracker.R
 
 @Singleton
@@ -63,6 +65,9 @@ open class LlmRepository @Inject constructor(
     val pendingAction: StateFlow<PendingChatAction?> = _pendingAction.asStateFlow()
 
     fun clearPendingAction() { _pendingAction.value = null }
+
+    /** Logging tag. */
+    private val TAG = "LlmRepository"
 
     /** Adds an assistant line to the history (e.g. "Added ₹120 at Starbucks"). */
     suspend fun appendAssistantMessage(text: String) {
@@ -110,7 +115,7 @@ open class LlmRepository @Inject constructor(
         // carries a stale date, figures and lists — and, when oversized, used to
         // block every new chat until something refreshed the cache (#959).
         if (isNewChat) {
-            val systemPrompt = buildSystemPrompt(aiContextRepository.getChatContext())
+            val systemPrompt = buildSystemPrompt(aiContextRepository.getChatContext(), modelRepository.activeSpec())
             userPreferencesRepository.updateSystemPrompt(systemPrompt)
 
             val systemMessage = ChatMessage(
@@ -134,7 +139,7 @@ open class LlmRepository @Inject constructor(
             message = userMessage,
             isUser = true
         )
-        Log.d(TAG, "Saving user message: ${userMessage.take(50)}...")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Saving user message: ${userMessage.take(50)}...")
         chatDao.insertMessage(userChatMessage)
 
         // Ensure engine is initialized and conversation is active.
@@ -261,7 +266,11 @@ open class LlmRepository @Inject constructor(
                 when (event) {
                     is LlmEvent.Text -> { responseBuilder.append(event.delta); emit(event) }
                     is LlmEvent.Thinking -> { thinkingBuffer.append(event.delta); emit(event) }
-                    is LlmEvent.ToolCall -> toolCalls.add(event)
+                    is LlmEvent.ToolCall -> {
+                        // Solo el nombre del tool y las claves: los valores traen merchant y monto (PII).
+                        Log.d(TAG, "Tool call received: ${event.name} args=${event.arguments.keys}")
+                        toolCalls.add(event)
+                    }
                 }
             }
             // Process tool calls and build final response
@@ -323,7 +332,9 @@ open class LlmRepository @Inject constructor(
             }
         }
         for (call in toolCalls) {
+            Log.d(TAG, "Processing tool call: ${call.name} args=${call.arguments.keys}")
             val line = handleToolCall(call, userMessage) ?: continue
+            if (BuildConfig.DEBUG) Log.d(TAG, "Tool call ${call.name} result: ${line.take(100)}")
             if (responseBuilder.isNotEmpty()) { responseBuilder.append("\n") }
             responseBuilder.append(line)
         }
@@ -336,7 +347,7 @@ open class LlmRepository @Inject constructor(
 
         // Save the complete AI response
         val finalResponse = responseBuilder.toString()
-        Log.d(TAG, "Saving AI response: ${finalResponse.take(50)}...")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Saving AI response: ${finalResponse.take(50)}...")
         return finalResponse
     }
 
@@ -470,7 +481,7 @@ open class LlmRepository @Inject constructor(
                 .firstOrNull { it.isSystemPrompt }
                 ?.message ?: run {
                     val chatContext = aiContextRepository.getChatContext()
-                    buildSystemPrompt(chatContext)
+                    buildSystemPrompt(chatContext, modelRepository.activeSpec())
                 }
 
             // Build history (excluding system prompt and the message being sent)
@@ -523,7 +534,7 @@ open class LlmRepository @Inject constructor(
      * nothing to say (the transaction card carries its own text).
      */
     private suspend fun handleToolCall(call: LlmEvent.ToolCall, userMessage: String): String? {
-        if (com.pennywiseai.tracker.BuildConfig.DEBUG) Log.d(TAG, "tool call ${call.name} ${call.arguments.keys}")
+        Log.d(TAG, "handleToolCall: ${call.name} args=${call.arguments.keys}")
         return handleToolCallInner(call, userMessage)
     }
 
@@ -540,7 +551,9 @@ open class LlmRepository @Inject constructor(
             ?: categories.firstOrNull { norm(it.name).split(" ").first() == w.split(" ").first() }?.name
     }
 
-    private suspend fun handleToolCallInner(call: LlmEvent.ToolCall, userMessage: String): String? = when (call.name) {
+    private suspend fun handleToolCallInner(call: LlmEvent.ToolCall, userMessage: String): String? {
+        Log.d(TAG, "handleToolCallInner: ${call.name} args=${call.arguments.keys}")
+        return when (call.name) {
         PennyWiseTools.ADD_TRANSACTION -> {
             val draft = TransactionDraft.fromToolArgs(
                 args = call.arguments,
@@ -739,6 +752,7 @@ open class LlmRepository @Inject constructor(
             }
             null
         }
+        }
     }
 
     private suspend fun findTransaction(args: Map<String, Any?>): TransactionFinder.Match? {
@@ -761,7 +775,7 @@ open class LlmRepository @Inject constructor(
      * prompt embedded recent transactions, which a 1.5B model tends to parrot
      * back into tool arguments.
      */
-    private suspend fun buildSystemPrompt(context: ChatContext): String {
+    private suspend fun buildSystemPrompt(context: ChatContext, activeSpec: ChatModelSpec): String {
         val monthSummary = context.monthSummary
         val currency = userPreferencesRepository.baseCurrency.first()
         val categories = categoryRepository.getVisibleCategories().first()
@@ -769,7 +783,6 @@ open class LlmRepository @Inject constructor(
         val accounts = accountBalanceRepository.getAllLatestBalancesOnce()
             .filter { IgnoredAccountsStore.keyFor(it.bankName, it.accountLast4) !in ignored }
             .map { it.alias ?: "${it.bankName} ${it.accountLast4}" }
-        val activeSpec = modelRepository.activeSpec()
         val supportsMedia = ChatModels.isMultimodal(activeSpec)
         val customInstructions = userPreferencesRepository.customInstructions.first()
         val systemPromptAdditions = userPreferencesRepository.systemPromptAdditions.first()
@@ -794,7 +807,7 @@ open class LlmRepository @Inject constructor(
 
     suspend fun updateSystemPrompt() {
         val chatContext = aiContextRepository.getChatContext()
-        val newPrompt = buildSystemPrompt(chatContext)
+        val newPrompt = buildSystemPrompt(chatContext, modelRepository.activeSpec())
         // Actualizar la fila isSystemPrompt=1 en Room ANTES de cerrar la conversación
         // para que al recrearse use el prompt nuevo (W2)
         chatDao.updateSystemPromptMessage(newPrompt)
@@ -909,7 +922,6 @@ open class LlmRepository @Inject constructor(
          * "monthSummary" crudo como respuesta completa).
          */
         private val NARRATED_TOOL = Regex("^([A-Za-z_][A-Za-z0-9_]*)$")
-        private const val TAG = "LlmRepository"
 
         /** Prompt for vision (receipt OCR → addTransaction). In English (system prompt language). */
         const val IMAGE_PROMPT = "If the user attached an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. If the image/document does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults from the available accounts and categories above, and ask for explicit confirmation. Never assume currency — always specify the currency code (ISO 4217) with the amount. Emit ONLY the addTransaction tool call with those fields (after user confirms)."

@@ -997,7 +997,7 @@ private fun EditSubscriptionDialog(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
                     ),
                     modifier = Modifier.fillMaxWidth(),
-                    isError = parsedAmount == null || (parsedAmount != null && parsedAmount <= BigDecimal.ZERO)
+                    isError = parsedAmount == null || parsedAmount <= BigDecimal.ZERO
                 )
                 OutlinedTextField(
                     value = nextDate?.format(AppDates.dateFormatter()) ?: stringResource(R.string.subscriptions_edit_tap_to_set),

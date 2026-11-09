@@ -114,7 +114,7 @@ class BankNotificationListenerService : NotificationListenerService() {
                 if (parsed != null) {
                     val incoming = parsed.toEntity()
                     val hashMatch = incoming.transactionHash
-                        ?.let { transactionRepository.getTransactionByHash(it) } != null
+                        .let { transactionRepository.getTransactionByHash(it) } != null
                     val eventTime = LocalDateTime.ofInstant(
                         Instant.ofEpochMilli(timestamp), ZoneId.systemDefault()
                     )

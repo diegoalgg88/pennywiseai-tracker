@@ -304,14 +304,14 @@ object DatabaseModule {
  * Database callback to seed initial data when database is first created
  */
 class DatabaseCallback : RoomDatabase.Callback() {
-    override suspend fun onCreate(db: SQLiteConnection) {
-        super.onCreate(db)
-        
+    override suspend fun onCreate(connection: SQLiteConnection) {
+        super.onCreate(connection)
+
         // Seed default categories for new installations. Synchronous: Room 3
         // confines the connection to this call, so it can't be used from a
         // coroutine launched here.
-        seedCategories(db)
-        seedProfiles(db)
+        seedCategories(connection)
+        seedProfiles(connection)
     }
     
     private fun seedCategories(db: SQLiteConnection) {

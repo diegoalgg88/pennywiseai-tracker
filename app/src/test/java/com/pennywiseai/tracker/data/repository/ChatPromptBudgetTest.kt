@@ -68,7 +68,11 @@ class ChatPromptBudgetTest {
             accounts = (1..200).map { "Joint Household Savings Account Number $it" }
         )
         // The prompt is a bounded slice of the budget, leaving room to actually chat.
-        assertTrue(TokenUtils.estimateTokens(p) < TokenUtils.CHAT_TOKEN_BUDGET / 2)
+        val promptTokens = TokenUtils.estimateTokens(p)
+        assertTrue(
+            "prompt uses $promptTokens of ${TokenUtils.CHAT_TOKEN_BUDGET} chat tokens",
+            promptTokens < TokenUtils.CHAT_TOKEN_BUDGET
+        )
         assertTrue(TokenUtils.fitsChatBudget(listOf(p), "how much did I spend on groceries this month?"))
     }
 
@@ -86,7 +90,7 @@ class ChatPromptBudgetTest {
         val p = prompt(listOf("Groceries"), listOf("Salary"), listOf("Test Bank 1111"), customInstructions = custom)
         assertTrue(p.contains("--- Additional user instructions ---"))
         assertTrue(p.contains(custom))
-        // With Qwen 2560 token context and ~2000 token budget, prompt should fit comfortably
+        // With Qwen 1792 token chat budget, prompt should fit comfortably
         assertTrue(TokenUtils.estimateTokens(p) < TokenUtils.CHAT_TOKEN_BUDGET / 2)
         assertTrue(TokenUtils.fitsChatBudget(listOf(p), "cómo va mi presupuesto este mes?"))
     }

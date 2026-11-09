@@ -16,6 +16,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.decodeFromStream
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -72,6 +73,7 @@ class BackupImporter @Inject constructor(
     /**
      * Read and parse backup file
      */
+    @OptIn(ExperimentalSerializationApi::class)
     private suspend fun readBackupFile(uri: Uri): PennyWiseBackup {
         return withContext(Dispatchers.IO) {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->

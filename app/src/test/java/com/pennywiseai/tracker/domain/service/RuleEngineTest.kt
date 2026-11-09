@@ -9,6 +9,7 @@ import com.pennywiseai.tracker.domain.model.rule.RuleAction
 import com.pennywiseai.tracker.domain.model.rule.RuleCondition
 import com.pennywiseai.tracker.domain.model.rule.TransactionField
 import com.pennywiseai.tracker.domain.model.rule.TransactionRule
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -25,7 +26,7 @@ import java.util.UUID
  */
 class RuleEngineTest {
 
-    private val engine = RuleEngine()
+    private val engine = RuleEngine(mockk(relaxed = true))
 
     // --- HEAD: BANK_NAME action tests (SET / CLEAR) ---
 

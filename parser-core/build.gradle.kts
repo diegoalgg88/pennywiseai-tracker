@@ -17,7 +17,7 @@ kotlin {
         commonMain.dependencies {
             api("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
         }
-        val jvmMain by getting {
+        val jvmMain = getByName("jvmMain") {
             kotlin.srcDir("src/main/kotlin")
         }
         // The same parser sources compile for iOS. They import java.math /
@@ -29,7 +29,7 @@ kotlin {
         iosTest.dependencies {
             implementation(kotlin("test"))
         }
-        val jvmTest by getting {
+        val jvmTest = getByName("jvmTest") {
             kotlin.srcDir("src/test/kotlin")
             resources.srcDir("src/test/resources")
             dependencies {

@@ -26,7 +26,7 @@ object BalanceCalculator {
         val wasCard = existing?.isCreditCard == true
         val type = existing?.accountType
         val hasNonCardType = type != null && !type.equals("CREDIT", ignoreCase = true)
-        return if (hasNonCardType) wasCard && existing?.isLoan != true else smsIsCard || wasCard
+        return if (hasNonCardType) wasCard && existing.isLoan != true else smsIsCard || wasCard
     }
 
     /**

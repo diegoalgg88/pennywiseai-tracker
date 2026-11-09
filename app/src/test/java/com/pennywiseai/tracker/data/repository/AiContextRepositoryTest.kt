@@ -4,16 +4,21 @@ import android.content.Context
 import android.content.ContextWrapper
 import com.pennywiseai.tracker.data.currency.CurrencyConversionService
 import com.pennywiseai.tracker.data.currency.ExchangeRateProvider
+import com.pennywiseai.tracker.data.database.dao.BudgetDao
 import com.pennywiseai.tracker.data.database.dao.ExchangeRateDao
 import com.pennywiseai.tracker.data.database.dao.SubscriptionDao
 import com.pennywiseai.tracker.data.database.dao.TransactionDao
+import com.pennywiseai.tracker.data.database.dao.TransactionSplitDao
+import com.pennywiseai.tracker.data.database.entity.BudgetEntity
 import com.pennywiseai.tracker.data.database.entity.ExchangeRateEntity
 import com.pennywiseai.tracker.data.database.entity.SubscriptionEntity
 import com.pennywiseai.tracker.data.database.entity.SubscriptionState
 import com.pennywiseai.tracker.data.database.entity.TransactionEntity
 import com.pennywiseai.tracker.data.database.entity.TransactionType
 import com.pennywiseai.tracker.data.preferences.UserPreferencesRepository
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import kotlin.test.assertNotNull
@@ -119,11 +124,25 @@ class AiContextRepositoryTest {
             userPreferencesRepository = userPreferencesRepository
         )
 
+        // El repositorio de budgets entra al constructor; este test no consulta presupuestos.
+        val budgetDao = Proxy.newProxyInstance(
+            BudgetDao::class.java.classLoader,
+            arrayOf(BudgetDao::class.java)
+        ) { _, method, _ ->
+            if (method.returnType == Flow::class.java) flowOf(emptyList<BudgetEntity>()) else null
+        } as BudgetDao
+
+        val transactionSplitDao = Proxy.newProxyInstance(
+            TransactionSplitDao::class.java.classLoader,
+            arrayOf(TransactionSplitDao::class.java)
+        ) { _, _, _ -> null } as TransactionSplitDao
+
         repository = AiContextRepository(
             transactionDao = transactionDao,
             subscriptionDao = subscriptionDao,
             userPreferencesRepository = userPreferencesRepository,
-            currencyConversionService = currencyConversionService
+            currencyConversionService = currencyConversionService,
+            budgetRepository = BudgetRepository(budgetDao, transactionDao, transactionSplitDao)
         )
     }
 

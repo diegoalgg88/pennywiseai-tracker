@@ -14,6 +14,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.encodeToStream
 import java.io.File
 import java.time.LocalDate
@@ -37,6 +38,7 @@ class BackupExporter @Inject constructor(
     /**
      * Export complete app data to a backup file
      */
+    @OptIn(ExperimentalSerializationApi::class)
     suspend fun exportBackup(
         privacy: ExportPrivacy = ExportPrivacy.FULL,
         includeReceipts: Boolean = false

@@ -1371,10 +1371,9 @@ open class UserPreferencesRepository @Inject constructor(
 
     suspend fun setCustomModelConfig(configJson: String?) {
         context.dataStore.edit { preferences ->
-            configJson?.trim().let {
-                if (it.isNullOrEmpty()) preferences.remove(PreferencesKeys.CUSTOM_MODEL_CONFIG)
-                else preferences[PreferencesKeys.CUSTOM_MODEL_CONFIG] = it
-            } ?: preferences.remove(PreferencesKeys.CUSTOM_MODEL_CONFIG)
+            val trimmed = configJson?.trim()
+            if (trimmed.isNullOrEmpty()) preferences.remove(PreferencesKeys.CUSTOM_MODEL_CONFIG)
+            else preferences[PreferencesKeys.CUSTOM_MODEL_CONFIG] = trimmed
         }
     }
 

@@ -33,7 +33,7 @@ fun BalanceSparkline(
 
     // Compute min/max from both datasets for shared Y scale
     val hasComparison = comparisonData != null && comparisonData.size >= 2
-    val allValues = if (hasComparison) data + comparisonData!! else data
+    val allValues = if (hasComparison) data + comparisonData else data
     val max = allValues.maxOf { it }.toFloat()
     val min = allValues.minOf { it }.toFloat()
     val range = (max - min).takeIf { it > 0f } ?: 1f
@@ -60,7 +60,7 @@ fun BalanceSparkline(
         scale(scaleX = if (rtl) -1f else 1f, scaleY = 1f) {
             // Draw comparison line FIRST (behind main line)
             if (hasComparison) {
-                val compData = comparisonData!!
+                val compData = comparisonData
                 val compStepX = if (compData.size > 1) width / (compData.size - 1) else width
                 val compPath = Path()
 

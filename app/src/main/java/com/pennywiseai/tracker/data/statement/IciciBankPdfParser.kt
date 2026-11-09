@@ -35,8 +35,8 @@ class IciciBankPdfParser : PdfStatementParser {
         return rows.mapIndexedNotNull { i, row ->
             val description = descriptionFor(rows, i, lines)
             val type = when {
-                previousBalance != null && row.balance.compareTo(previousBalance!! - row.amount) == 0 -> TransactionType.EXPENSE
-                previousBalance != null && row.balance.compareTo(previousBalance!! + row.amount) == 0 -> TransactionType.INCOME
+                previousBalance != null && row.balance.compareTo(previousBalance - row.amount) == 0 -> TransactionType.EXPENSE
+                previousBalance != null && row.balance.compareTo(previousBalance + row.amount) == 0 -> TransactionType.INCOME
                 else -> guessType(description)
             }
             previousBalance = row.balance

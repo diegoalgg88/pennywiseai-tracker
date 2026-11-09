@@ -37,31 +37,31 @@ class ChatModelsTest {
     @Test
     fun whisper_isNotChatCapable() = runBlocking {
         assertFalse(TokenUtils.isChatCapable(ChatModels.WHISPER_BASE))
-        assertEquals(-1536, TokenUtils.chatBudget(ChatModels.WHISPER_BASE))
+        assertEquals(-2304, TokenUtils.chatBudget(ChatModels.WHISPER_BASE))
     }
 
     @Test
     fun qwen_isChatCapable() = runBlocking {
         assertTrue(TokenUtils.isChatCapable(ChatModels.QWEN_1_5B))
-        assertEquals(2560, TokenUtils.chatBudget(ChatModels.QWEN_1_5B))
+        assertEquals(1792, TokenUtils.chatBudget(ChatModels.QWEN_1_5B))
     }
 
     @Test
     fun gemma4_isChatCapable() = runBlocking {
         assertTrue(TokenUtils.isChatCapable(ChatModels.GEMMA_4_E2B))
-        assertEquals(6656, TokenUtils.chatBudget(ChatModels.GEMMA_4_E2B))
+        assertEquals(5888, TokenUtils.chatBudget(ChatModels.GEMMA_4_E2B))
     }
 
     @Test
     fun gemma3n_isChatCapable() = runBlocking {
         assertTrue(TokenUtils.isChatCapable(ChatModels.GEMMA_3N_E2B))
-        assertEquals(6656, TokenUtils.chatBudget(ChatModels.GEMMA_3N_E2B))
+        assertEquals(5888, TokenUtils.chatBudget(ChatModels.GEMMA_3N_E2B))
     }
 
     @Test
-    fun chatBudgetOfGemmaModelsIs6656() = runBlocking {
-        assertEquals(6656, TokenUtils.chatBudget(ChatModels.GEMMA_4_E2B))
-        assertEquals(6656, TokenUtils.chatBudget(ChatModels.GEMMA_3N_E2B))
+    fun chatBudgetOfGemmaModelsIs5888() = runBlocking {
+        assertEquals(5888, TokenUtils.chatBudget(ChatModels.GEMMA_4_E2B))
+        assertEquals(5888, TokenUtils.chatBudget(ChatModels.GEMMA_3N_E2B))
     }
 
     @Test

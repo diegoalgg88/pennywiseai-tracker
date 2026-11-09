@@ -126,7 +126,7 @@ class AiContextRepository @Inject constructor(
                 TransactionSummary(
                     merchantName = transaction.merchantName,
                     amount = convertedAmount,
-                    category = transaction.category ?: "Others",
+                    category = transaction.category,
                     daysAgo = daysAgo,
                     dateTime = transaction.dateTime,
                     transactionType = transaction.transactionType
@@ -182,7 +182,7 @@ class AiContextRepository @Inject constructor(
         transactions
             .filter { it.transactionType == TransactionType.EXPENSE }
             .forEach { transaction ->
-                val category = transaction.category ?: "Others"
+                val category = transaction.category
                 val convertedAmount = currencyConversionService.convertAmountOrNull(
                     amount = transaction.amount,
                     fromCurrency = transaction.currency,
@@ -257,7 +257,7 @@ class AiContextRepository @Inject constructor(
             TransactionSummary(
                 merchantName = transaction.merchantName,
                 amount = largestConvertedAmount,
-                category = transaction.category ?: "Others",
+                category = transaction.category,
                 daysAgo = daysAgo
             )
         }
@@ -336,7 +336,7 @@ class AiContextRepository @Inject constructor(
         ).forTotals()
 
         val catTxns = transactions
-            .filter { it.category?.equals(category, ignoreCase = true) == true && it.transactionType == TransactionType.EXPENSE }
+            .filter { it.category.equals(category, ignoreCase = true) && it.transactionType == TransactionType.EXPENSE }
             .mapNotNull { currencyConversionService.convertAmountOrNull(it.amount, it.currency, baseCurrency) }
             .toList()
 
@@ -348,7 +348,7 @@ class AiContextRepository @Inject constructor(
 
         // Top merchants
         val merchantCounts = transactions
-            .filter { it.category?.equals(category, ignoreCase = true) == true && it.transactionType == TransactionType.EXPENSE }
+            .filter { it.category.equals(category, ignoreCase = true) && it.transactionType == TransactionType.EXPENSE }
             .groupingBy { it.merchantName }
             .eachCount()
             .toList()

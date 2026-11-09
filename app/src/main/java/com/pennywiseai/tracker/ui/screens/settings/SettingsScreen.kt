@@ -23,6 +23,7 @@ import com.pennywiseai.tracker.data.database.entity.AccountBalanceEntity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Note
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -910,7 +911,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconTile(
-                            icon = Icons.Default.Note,
+                            icon = Icons.AutoMirrored.Filled.Note,
                             containerColor = indigo_light,
                             contentColor = indigo_dark
                         )
@@ -1389,22 +1390,24 @@ fun SettingsScreen(
                                     .padding(horizontal = Dimensions.Padding.content, vertical = Spacing.sm)
                             ) {
                                 // Thinking budget slider
-                                var budget by remember { mutableStateOf(thinkingBudget) }
+                                val sliderState = rememberSliderState(
+                                    value = thinkingBudget.toFloat(),
+                                    steps = (4096 - 256) / 256,
+                                    trackRange = 256f..4096f
+                                )
                                 Text(
                                     text = stringResource(R.string.settings_thinking_budget_title),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Slider(
-                                    value = budget.toFloat(),
-                                    onValueChange = { budget = it.toInt() },
-                                    onValueChangeFinished = { settingsViewModel.setThinkingBudgetTokens(budget) },
-                                    valueRange = 256f..4096f,
-                                    steps = (4096 - 256) / 256,
+                                    state = sliderState,
+                                    onValueChange = { sliderState.value = it },
+                                    onValueChangeFinished = { settingsViewModel.setThinkingBudgetTokens(sliderState.value.toInt()) },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
-                                    text = "${budget} tokens",
+                                    text = "${sliderState.value.toInt()} tokens",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End)

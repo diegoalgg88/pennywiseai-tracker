@@ -34,7 +34,8 @@ internal object ChatResponseHeuristics {
     private val SNAKE_TO_CAMEL: Map<String, String> = KNOWN_TOOLS_SNAKE
         .associateWith { it
             .split("_")
-            .map { it.capitalize() }
+            // Equivale al `capitalize()` deprecado: primera letra alta, resto baja.
+            .map { word -> word.lowercase().replaceFirstChar { it.uppercase() } }
             .joinToString("")
             .let { it[0].lowercase() + it.substring(1) }
         }

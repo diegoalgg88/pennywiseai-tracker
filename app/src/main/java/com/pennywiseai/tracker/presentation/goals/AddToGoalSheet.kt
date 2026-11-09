@@ -143,7 +143,7 @@ fun AddToGoalSheet(
                 supportingText = amountError?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (askManual && goalCurrency != null) {
+            if (askManual) {
                 Text(
                     stringResource(R.string.goal_money_no_rate, currency, goalCurrency),
                     style = MaterialTheme.typography.bodyMedium,
@@ -240,11 +240,15 @@ fun TowardGoalsSection(linked: List<LinkedGoal>, onOpenGoal: (Long) -> Unit, onR
                             .size(Dimensions.Component.legendDot)
                             .background(goal.color.toColorOr(MaterialTheme.colorScheme.primary), CircleShape)
                     )
-                    val converted = c.originalAmount != null && c.originalCurrency != null && c.originalCurrency != goal.currency
+                    val originalAmount = c.originalAmount
+                    val originalCurrency = c.originalCurrency
                     RowLabels(
                         title = goal.name,
-                        subtitle = if (converted) {
-                            stringResource(R.string.goal_converted_from, CurrencyFormatter.formatCurrency(c.originalAmount!!.abs(), c.originalCurrency!!))
+                        subtitle = if (originalAmount != null && originalCurrency != null && originalCurrency != goal.currency) {
+                            stringResource(
+                                R.string.goal_converted_from,
+                                CurrencyFormatter.formatCurrency(originalAmount.abs(), originalCurrency)
+                            )
                         } else null,
                     )
                     Text(

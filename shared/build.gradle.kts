@@ -27,7 +27,7 @@ kotlin {
     }
 
     sourceSets {
-        val commonMain by getting {
+        val commonMain = getByName("commonMain") {
             dependencies {
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
@@ -37,13 +37,13 @@ kotlin {
                 implementation(project(":parser-core"))
             }
         }
-        val commonTest by getting {
+        val commonTest = getByName("commonTest") {
             dependencies {
                 implementation(kotlin("test"))
                 implementation(libs.kotlinx.coroutines.test)
             }
         }
-        val androidMain by getting {
+        val androidMain = getByName("androidMain") {
             // Bank SMS parsers are platform code in parser-core (no common API),
             // so the one bridge file compiles into each platform source set.
             kotlin.srcDir("src/bankParserMain/kotlin")

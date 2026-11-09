@@ -71,7 +71,7 @@ class TelcelMexicoParserTest {
                 shouldHandle = true
             ),
             SimpleTestCase(
-                bankName = "Telcel México (lowercase sender)",
+                bankName = "Telcel México",
                 sender = "telcel",
                 currency = "MXN",
                 message = "Estimado cliente tu fecha de pago esta por vencer, para continuar con tu servicio paga \$601.39 antes del 02/11/26 Mas info *111",

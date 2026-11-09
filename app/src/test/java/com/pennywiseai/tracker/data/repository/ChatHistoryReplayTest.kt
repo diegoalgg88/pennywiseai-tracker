@@ -60,6 +60,8 @@ class ChatHistoryReplayTest {
             transactionRepository = mockk(relaxed = true),
             budgetRepository = mockk(relaxed = true),
             ignoredAccountsStore = mockk(relaxed = true),
+            exchangeRateProvider = mockk(relaxed = true),
+            subscriptionRepository = mockk(relaxed = true),
             context = mockk(relaxed = true)
         )
 

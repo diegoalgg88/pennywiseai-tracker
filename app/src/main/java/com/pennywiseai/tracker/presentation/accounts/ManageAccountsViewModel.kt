@@ -387,7 +387,7 @@ class ManageAccountsViewModel @Inject constructor(
                         val insertedId = accountBalanceRepository.insertBalanceUpdate(
                             bankName = card.bankName,
                             accountLast4 = accountLast4,
-                            balance = card.lastBalance!!,
+                            balance = card.lastBalance,
                             timestamp = card.lastBalanceDate ?: LocalDateTime.now(),
                             smsSource = card.lastBalanceSource,
                             sourceType = "CARD_LINK"

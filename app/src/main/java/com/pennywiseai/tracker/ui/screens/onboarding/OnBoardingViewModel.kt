@@ -42,7 +42,10 @@ import javax.inject.Inject
 internal fun detectCurrency(countries: List<String?>, supported: Collection<String>): String =
     countries.firstNotNullOfOrNull { country ->
         // Blank/unknown regions throw; regions without a currency (e.g. AQ) return null.
-        runCatching { Currency.getInstance(Locale("", country.orEmpty().uppercase()))?.currencyCode }
+        runCatching {
+            val region = Locale.Builder().setRegion(country.orEmpty().uppercase()).build()
+            Currency.getInstance(region)?.currencyCode
+        }
             .getOrNull()?.takeIf { it in supported }
     } ?: UserPreferences().baseCurrency
 

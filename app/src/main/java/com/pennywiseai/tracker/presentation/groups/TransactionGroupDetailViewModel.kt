@@ -9,6 +9,8 @@ import com.pennywiseai.tracker.data.repository.TransactionGroupRepository
 import com.pennywiseai.tracker.data.repository.groupTotalsOf
 import com.pennywiseai.tracker.utils.Money
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +38,7 @@ data class TransactionGroupDetailUiState(
 )
 
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class TransactionGroupDetailViewModel @Inject constructor(
     private val repository: TransactionGroupRepository,
     savedStateHandle: SavedStateHandle
