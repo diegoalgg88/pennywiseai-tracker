@@ -173,7 +173,7 @@ open class LlmRepository @Inject constructor(
         unsupported = ChatError.VisionRequiresGemma3n(),
         label = "image",
         userMessage = userMessage
-    ) { file -> llmService.sendMessageWithImage(userMessage, file) }
+    ) { file -> llmService.sendMessageWithImage(userMessage.ifBlank { DEFAULT_IMAGE_REQUEST }, file) }
 
     /**
      * Envía un mensaje con audio para transcripción (nota de voz → addTransaction).
@@ -189,7 +189,7 @@ open class LlmRepository @Inject constructor(
         unsupported = ChatError.AudioRequiresGemma3n(),
         label = "audio",
         userMessage = userMessage
-    ) { file -> llmService.sendMessageWithAudio(userMessage, file) }
+    ) { file -> llmService.sendMessageWithAudio(userMessage.ifBlank { DEFAULT_AUDIO_REQUEST }, file) }
 
     /**
      * Shared path for photo and voice input. The user gets a localized marker row (no
@@ -212,7 +212,13 @@ open class LlmRepository @Inject constructor(
         requireModelNotDownloading()
         requireFitsChatBudget(chatDao.getAllMessagesForContext(), userMessage)
 
-        val userChatMessage = ChatMessage(message = userMessage, isUser = true)
+        // Nothing but the marker is stored for the media itself, so a bare photo or voice
+        // note still shows up as a bubble instead of an empty row.
+        val marker = context.getString(markerRes)
+        val userChatMessage = ChatMessage(
+            message = if (userMessage.isBlank()) marker else "$marker\n$userMessage",
+            isUser = true
+        )
         chatDao.insertMessage(userChatMessage)
 
         // LiteRT-LM opens media by file path, so content:// URIs (gallery picker,
@@ -936,10 +942,10 @@ open class LlmRepository @Inject constructor(
             When the user asks for advanced category statistics, call categoryStats with category and monthsBack.
             If the user refers to something already recorded — "the tea from today", "that uber", "change", "should be", "was actually", "delete", "remove" — call updateTransaction or deleteTransaction with the words they used to identify it. Never call addTransaction for those.
             ${if (supportsVision) """
-            If the user attaches an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. If the image/document does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults from the available accounts and categories above, and ask for explicit confirmation. Never assume currency — always use CurrencyFormatter.formatCurrency(amount, code). Emit ONLY the addTransaction tool call with those fields (after user confirms).
+            If the user attaches an image of a receipt, reply with ONLY one JSON object and no other text, in this exact shape: {"name": "addTransaction", "arguments": {"amount": 123.45, "merchant": "Store name", "category": "Category name", "type": "EXPENSE", "account": ""}}. Read amount and merchant from the image; guess the category from the lists below; use INCOME only for money received; leave account empty when the image does not show one. The app shows the user a confirmation card, so never ask for confirmation. If the amount cannot be read, ask for it in one short sentence instead of the JSON.
             """ else ""}
             ${if (supportsAudio) """
-            If the user sends a voice note, transcribe it, extract transaction fields (merchant, amount, date, category). Omit currency if not mentioned. If the audio does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults. Never assume currency.
+            If the user sends a voice note, transcribe it and reply with ONLY one JSON object and no other text, in this exact shape: {"name": "addTransaction", "arguments": {"amount": 123.45, "merchant": "Store name", "category": "Category name", "type": "EXPENSE", "account": ""}}. Guess the category from the lists below; use INCOME only for money received; leave account empty when none is mentioned. The app shows the user a confirmation card, so never ask for confirmation. If the amount is missing, ask for it in one short sentence instead of the JSON.
             """ else ""}
             Otherwise answer briefly and helpfully. Never invent transactions or figures, and never say you added, changed or deleted anything yourself — only the tools do that, and the user confirms each one.
 
@@ -976,7 +982,9 @@ open class LlmRepository @Inject constructor(
         private const val MAX_INCOME_CATEGORY_CHARS = 400
         private const val MAX_ACCOUNT_CHARS = 500
         private val CLAIMS_A_CHANGE = Regex(
-        "\\b(I(?:'ve| have)?|has been|have been|is now|was|it'?s been|it was) (added|updated|changed|deleted|removed|recorded|he (agregado|añadido|registrado|eliminado|actualizado|borrado)|se (ha )?(agreg|añadi|registr|elimin|actualiz)[óo])\\b",
+        "\\b(I(?:'ve| have)?|has been|have been|is now|was|it'?s been|it was) (added|updated|changed|deleted|removed|recorded|he (agregado|añadido|registrado|eliminado|actualizado|borrado)|se (ha )?(agreg|añadi|registr|elimin|actualiz)[óo])\\b" +
+            // "Transaction added:" / "Adding transaction..." with no subject, as Gemma 3n writes it.
+            "|\\b(transaction|expense|income)( was| has been)? (added|recorded|deleted|updated)\\b|\\badding (the )?transaction\\b",
         RegexOption.IGNORE_CASE
     )
         /**
@@ -985,6 +993,13 @@ open class LlmRepository @Inject constructor(
          * "monthSummary" crudo como respuesta completa).
          */
         private val NARRATED_TOOL = Regex("^([A-Za-z_][A-Za-z0-9_]*)$")
+
+        /**
+         * Sent in place of an empty caption: an image/audio part followed by an empty text
+         * part made LiteRT-LM reject the prompt ("provided more image than expected").
+         */
+        const val DEFAULT_IMAGE_REQUEST = "Extract the transaction from this image."
+        const val DEFAULT_AUDIO_REQUEST = "Extract the transaction from this voice note."
 
         /** Prompt for vision (receipt OCR → addTransaction). In English (system prompt language). */
         const val IMAGE_PROMPT = "If the user attached an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. If the image/document does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults from the available accounts and categories above, and ask for explicit confirmation. Never assume currency — always specify the currency code (ISO 4217) with the amount. Emit ONLY the addTransaction tool call with those fields (after user confirms)."

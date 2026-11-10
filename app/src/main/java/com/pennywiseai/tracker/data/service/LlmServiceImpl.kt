@@ -106,7 +106,13 @@ class LlmServiceImpl @Inject constructor(
             // leave a dead conversation behind for the next caller to close again.
             takeConversation()?.closeQuietly()
 
-            val config = chatConversationConfig(systemPrompt, history, withTools, thinkingConfig)
+            // QwenChatTemplate only renders text parts: with it, an image or audio part
+            // never reaches the prompt and LiteRT-LM rejects the send ("provided more image
+            // than expected in the prompt"). Multimodal models keep their own template.
+            val config = chatConversationConfig(
+                systemPrompt, history, withTools, thinkingConfig,
+                chatTemplate = if (multimodal) null else QwenChatTemplate.TEMPLATE
+            )
             conversation = currentEngine.createConversation(config)
             conversationConfig = config
             Log.d(TAG, "Conversation created with ${history.size} history messages")
@@ -331,7 +337,8 @@ class LlmServiceImpl @Inject constructor(
             systemPrompt: String,
             history: List<Pair<String, Boolean>>,
             withTools: Boolean,
-            thinkingConfig: ThinkingConfig? = null
+            thinkingConfig: ThinkingConfig? = null,
+            chatTemplate: String? = QwenChatTemplate.TEMPLATE
         ) = ConversationConfig(
             systemInstruction = Contents.of(systemPrompt),
             initialMessages = history.map { (message, isUser) ->
@@ -350,8 +357,10 @@ class LlmServiceImpl @Inject constructor(
             thinkingConfig = thinkingConfig?.takeIf { it.enabled }?.let {
                 LiteRtThinkingConfig(true, it.budgetTokens)
             },
-            // The model's built-in template can't read LiteRT-LM >= 0.18's message format.
-            chatTemplate = QwenChatTemplate.TEMPLATE
+            // The model's built-in template can't read LiteRT-LM >= 0.18's message format
+            // (Qwen). Null keeps the bundle's own template, which is the one that knows how
+            // to place image/audio parts of a multimodal model.
+            chatTemplate = chatTemplate
         )
     }
 }

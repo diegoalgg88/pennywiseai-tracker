@@ -107,7 +107,9 @@ class LlmProbeReceiver : BroadcastReceiver() {
                             EngineConfig(
                                 modelPath = modelPath,
                                 backend = Backend.CPU(),
-                                visionBackend = if (multimodal) Backend.CPU() else null,
+                                // The vision executor of the multimodal bundles requires GPU regardless of
+                                // the engine backend (same constraint as LlmServiceImpl.startEngine).
+                                visionBackend = if (multimodal) Backend.GPU() else null,
                                 audioBackend = if (multimodal) Backend.CPU() else null,
                                 cacheDir = context.cacheDir.path
                             )
