@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
 import java.math.BigDecimal
 import java.util.UUID
 import javax.inject.Inject
@@ -329,6 +330,53 @@ open class LlmRepository @Inject constructor(
                     responseBuilder.clear()
                     toolCalls.add(LlmEvent.ToolCall(snake, emptyMap()))
                 }
+            }
+        }
+        // Fallback 2: some models emit the tool call as a JSON object in the text
+        // stream (e.g., {"name": "spending_by_category", "arguments": {...}}).
+        // Try to extract it if we still have no structured tool calls.
+        if (toolCalls.isEmpty()) {
+            val text = responseBuilder.toString().trim()
+            Log.d(TAG, "JSON fallback: attempting extraction from text (len=${text.length})")
+            val jsonToolCall = Regex(
+                """\{\s*"name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*"arguments"\s*:\s*(\{.*?\})\s*\}""",
+                RegexOption.DOT_MATCHES_ALL
+            ).find(text)
+            jsonToolCall?.let { m ->
+                val name = m.groupValues[1]
+                val argsJson = m.groupValues[2]
+                Log.d(TAG, "JSON fallback: matched name='$name' argsJson='$argsJson'")
+                val known = listOf(
+                    PennyWiseTools.ADD_TRANSACTION, PennyWiseTools.DELETE_TRANSACTION,
+                    PennyWiseTools.UPDATE_TRANSACTION, PennyWiseTools.MONTH_SUMMARY,
+                    PennyWiseTools.SPENDING_BY_CATEGORY, PennyWiseTools.BUDGET_STATUS,
+                    PennyWiseTools.CATEGORY_BREAKDOWN, PennyWiseTools.RECENT_TRANSACTIONS,
+                    PennyWiseTools.ACCOUNT_BALANCE, PennyWiseTools.SPENDING_FORECAST,
+                    PennyWiseTools.SEARCH_TRANSACTIONS, PennyWiseTools.SPENDING_TREND,
+                    PennyWiseTools.SUBSCRIPTION_SUMMARY, PennyWiseTools.EXCHANGE_RATE,
+                    PennyWiseTools.CATEGORY_STATS
+                )
+                val snake = known.firstOrNull { it.equals(name, ignoreCase = true) }
+                if (snake != null) {
+                    val args = try {
+                        val jsonElement = kotlinx.serialization.json.Json.decodeFromString<kotlinx.serialization.json.JsonElement>(argsJson)
+                        // Convert JsonElement to Map<String, Any?>
+                        if (jsonElement is kotlinx.serialization.json.JsonObject) {
+                            jsonElement.entries.associate { it.key to jsonElementToAny(it.value) }
+                        } else {
+                            emptyMap<String, Any?>()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "JSON fallback: failed to decode argsJson='$argsJson'", e)
+                        emptyMap<String, Any?>()
+                    }
+                    Log.w(TAG, "Model emitted tool '$name' as JSON in text — synthesizing $snake call with args: ${args.keys}")
+                    responseBuilder.clear()
+                    toolCalls.add(LlmEvent.ToolCall(snake, args))
+                }
+            }
+            if (jsonToolCall == null) {
+                Log.d(TAG, "JSON fallback: no match in text")
             }
         }
         for (call in toolCalls) {
@@ -927,5 +975,29 @@ open class LlmRepository @Inject constructor(
         const val IMAGE_PROMPT = "If the user attached an image of a receipt, extract: merchant, amount, date, category. Omit currency if not visible. If the image/document does NOT declare category, account, type (gasto/ingreso) or date, you MUST ask the user for the missing fields BEFORE calling addTransaction. Propose reasonable defaults from the available accounts and categories above, and ask for explicit confirmation. Never assume currency — always specify the currency code (ISO 4217) with the amount. Emit ONLY the addTransaction tool call with those fields (after user confirms)."
         /** Prompt for audio (voice note → addTransaction). In English (system prompt language). */
         const val AUDIO_PROMPT = "If the user attached an audio note, transcribe it and extract transaction details. Same rules as IMAGE_PROMPT: ask for missing fields (category, account, type, date) before calling addTransaction. Propose reasonable defaults. Never assume currency — always specify the currency code (ISO 4217) with the amount."
+
+        /**
+         * Converts a JsonElement to a Kotlin Any value for Map serialization.
+         * Supports strings, numbers, booleans, and null.
+         */
+        private fun jsonElementToAny(element: kotlinx.serialization.json.JsonElement): Any? = when {
+            element is kotlinx.serialization.json.JsonPrimitive -> {
+                val content = element.content
+                when {
+                    content == "null" -> null
+                    content.startsWith("\"") && content.endsWith("\"") -> content.substring(1, content.length - 1)
+                    content == "true" || content == "false" -> content.toBoolean()
+                    else -> {
+                        try {
+                            content.toBigDecimal()
+                        } catch (e: NumberFormatException) {
+                            content
+                        }
+                    }
+                }
+            }
+            element is kotlinx.serialization.json.JsonNull -> null
+            else -> element.toString()
+        }
     }
 }
