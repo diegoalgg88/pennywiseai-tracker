@@ -76,27 +76,14 @@ class LlmServiceImpl @Inject constructor(
         this.modelPath = modelPath
         this.multimodal = multimodal
         return try {
-            // GPU first; devices without a usable OpenCL/GPU delegate throw here, so fall back to CPU.
-            // A buggy driver can instead crash natively, which no catch sees: the flag is
-            // written before trying and cleared only once the GPU finishes its first reply
-            // (a driver can also die creating the conversation or generating), so a GPU
-            // attempt that crashed or threw is never retried and later starts go to CPU.
+            // Force CPU backend to avoid GPU precision corruption issues (Mali/Adreno).
+            // GPU backend has known issues with numeric precision on Mali/Adreno GPUs
+            // causing tool call argument corruption (Issue #2202).
             val cpu = {
                 gpuUnconfirmed = false
                 startEngine(modelPath, Backend.CPU(), multimodal).also { Log.i(TAG, "Engine initialized on CPU backend") }
             }
-            engine = if (backendPrefs.getBoolean(KEY_GPU_FAILED, false)) {
-                cpu()
-            } else try {
-                backendPrefs.edit().putBoolean(KEY_GPU_FAILED, true).commit()
-                startEngine(modelPath, Backend.GPU(), multimodal).also {
-                    gpuUnconfirmed = true
-                    Log.i(TAG, "Engine initialized on GPU backend")
-                }
-            } catch (e: Throwable) { // incl. UnsatisfiedLinkError when the OpenCL lib is missing
-                Log.w(TAG, "GPU backend unavailable (${e.javaClass.simpleName}), falling back to CPU")
-                cpu()
-            }
+            engine = cpu()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize engine", e)
