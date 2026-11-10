@@ -602,4 +602,42 @@
     <string name="rules_preview_action_clear">clear %1$s</string>
     <!-- field, value -->
     <string name="rules_preview_action_set">set %1$s to %2$s</string>
+    <!-- Chat tool results -->
+    <string name="chat_tool_spent_on_category">No se gastó nada en %1$s este mes.</string>
+    <string name="chat_tool_add_transaction_prompt">No pude entender el monto. Prueba algo como \"café 120 en Starbucks\".</string>
+    <string name="chat_tool_add_confirm">Aquí está lo que voy a añadir — confirma abajo:\n%1$s %2$s %3$s · %4$s · %5$s</string>
+    <string name="chat_tool_transaction_not_found">No encontré una transacción coincidente en los últimos 30 días. Prueba con el comercio y el monto.</string>
+    <string name="chat_tool_delete_confirm">%1$s¿Eliminar esta? Confirma abajo:\n%2$s</string>
+    <string name="chat_tool_update_what_change">¿Qué quieres cambiar? Di una categoría de tu lista o un nuevo nombre de comercio.</string>
+    <string name="chat_tool_update_confirm">%1$s¿Actualizar esta? Confirma abajo:\n%2$s → %3$s</string>
+    <string name="chat_tool_closest_match">No encontré una coincidencia exacta — esta es la más cercana. </string>
+    <string name="chat_tool_month_summary">Este mes: %1$s gastados, %2$s recibidos, %3$d transacciones.</string>
+    <string name="chat_tool_spent_category_detail">%1$s en %2$s este mes en %3$d transacciones.</string>
+    <string name="chat_tool_budget_status_item">%1$s: %2$s de %3$s usados (%4$d%%), %5$s restantes (%6$d días).</string>
+    <string name="chat_tool_budget_none">No hay presupuestos activos ahora.</string>
+    <string name="chat_tool_category_breakdown_item">%1$s: %2$s (%3$d%%, %4$d txns)</string>
+    <string name="chat_tool_category_none">Aún no hay gastos registrados este mes.</string>
+    <string name="chat_tool_recent_item">%1$s en %2$s · %3$s · %4$s</string>
+    <string name="chat_tool_recent_none">No hay transacciones en los últimos %1$d días.</string>
+    <string name="chat_tool_recent_today">hoy</string>
+    <string name="chat_tool_recent_yesterday">ayer</string>
+    <string name="chat_tool_recent_days_ago">%1$d días atrás</string>
+    <string name="chat_tool_accounts_none">Aún no hay cuentas registradas.</string>
+    <string name="chat_tool_account_item">%1$s — %2$s</string>
+    <string name="chat_tool_forecast">Gastado este mes: %1$s en %2$d de %3$d días. Al ritmo actual, el mes cerrará en %4$s.</string>
+    <string name="chat_tool_search_none">Ninguna transacción coincide con tus filtros.</string>
+    <string name="chat_tool_search_item">%1$s en %2$s · %3$s · %4$s</string>
+    <string name="chat_tool_trend_none">Datos insuficientes para una tendencia.</string>
+    <string name="chat_tool_trend_item">%1$s: %2$s</string>
+    <string name="chat_tool_subscriptions_none">No se encontraron suscripciones.</string>
+    <string name="chat_tool_subscription_item">%1$s: %2$s · %3$s · siguiente %4$s · %5$s</string>
+    <string name="chat_tool_exchange_missing">Necesito monto, fromCurrency y toCurrency.</string>
+    <string name="chat_tool_exchange_result">Tipo de cambio: 1 %1$s = %2$s %3$s\n%4$s = %5$s</string>
+    <string name="chat_tool_category_stats_missing">Necesito el nombre de una categoría.</string>
+    <string name="chat_tool_category_stats_none">No hay estadísticas para %1$s.</string>
+    <string name="chat_tool_category_stats">Categoría: %1$s (últimos %2$d meses)\nPromedio: %3$s\nMediana: %4$s\nComercios top: %5$s\nvs Presupuesto: %6$d%%</string>
+    <string name="chat_tool_from">de</string>
+    <string name="chat_tool_at">en</string>
+    <string name="chat_tool_merchant">comercio %1$s</string>
+    <string name="chat_tool_category">categoría %1$s</string>
 </resources>

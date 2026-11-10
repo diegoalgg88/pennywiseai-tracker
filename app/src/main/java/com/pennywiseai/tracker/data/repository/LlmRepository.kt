@@ -838,10 +838,19 @@ open class LlmRepository @Inject constructor(
         val locale = this.context.resources.configuration.locales.get(0)
         val languageTag = locale.toLanguageTag() // e.g. "es-MX", "en-US"
         
+        // Format date and month line in the user's locale
+        val dateFormatter = java.time.format.DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.LONG).withLocale(locale)
+        val formattedDate = context.currentDate.format(dateFormatter)
+        val monthLine = when (locale.language) {
+            "es" -> "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} gastados, " +
+                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency)} recibidos, ${monthSummary.transactionCount} transacciones"
+            else -> "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} spent, " +
+                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency)} income, ${monthSummary.transactionCount} transactions"
+        }
+
         return composeSystemPrompt(
-            currentDate = context.currentDate.toString(),
-            monthLine = "${CurrencyFormatter.formatCurrency(monthSummary.totalExpense, currency)} spent, " +
-                "${CurrencyFormatter.formatCurrency(monthSummary.totalIncome, currency)} income, ${monthSummary.transactionCount} transactions",
+            currentDate = formattedDate,
+            monthLine = monthLine,
             expenseCategories = categories.filter { !it.isIncome }.map { it.name },
             incomeCategories = categories.filter { it.isIncome }.map { it.name },
             accounts = accounts,
