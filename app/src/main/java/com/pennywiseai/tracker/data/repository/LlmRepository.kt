@@ -357,6 +357,8 @@ open class LlmRepository @Inject constructor(
                     PennyWiseTools.CATEGORY_STATS
                 )
                 val snake = known.firstOrNull { it.equals(name, ignoreCase = true) }
+                // CamelCase → snake_case: "monthSummary" → "month_summary"
+                ?: known.firstOrNull { it.equals(name.replace(Regex("([A-Z])")) { "_" + it.value.lowercase() }, ignoreCase = true) }
                 if (snake != null) {
                     val args = try {
                         val jsonElement = kotlinx.serialization.json.Json.decodeFromString<kotlinx.serialization.json.JsonElement>(argsJson)
@@ -649,8 +651,12 @@ open class LlmRepository @Inject constructor(
         PennyWiseTools.MONTH_SUMMARY -> {
             val m = aiContextRepository.getChatContext().monthSummary
             val currency = userPreferencesRepository.baseCurrency.first()
-            "This month: ${CurrencyFormatter.formatCurrency(m.totalExpense, currency)} spent, " +
-                "${CurrencyFormatter.formatCurrency(m.totalIncome, currency)} received, ${m.transactionCount} transactions."
+            context.getString(
+                R.string.chat_tool_month_summary,
+                CurrencyFormatter.formatCurrency(m.totalExpense, currency),
+                CurrencyFormatter.formatCurrency(m.totalIncome, currency),
+                m.transactionCount
+            )
         }
         PennyWiseTools.SPENDING_BY_CATEGORY -> {
             val category = (call.arguments["category"] as? String)?.trim().orEmpty()
